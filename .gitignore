@@ -1,0 +1,44 @@
+# ── Dependencies ────────────────────────────────────────
+node_modules/
+
+# ── Build outputs ───────────────────────────────────────
+dist/
+build/
+src-tauri/target/
+
+# ── Tauri generated schemas ─────────────────────────────
+src-tauri/gen/
+
+# ── Editor & IDE ────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Environment ─────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Test & scratch ──────────────────────────────────────
+coverage/
+*.bak
+*.orig
+*.tmp
+nova-log.txt
+
+# ── Rust: DO NOT ignore Cargo.lock ──────────────────────
+# For binary applications, Cargo.lock must be committed so
+# that every clone resolves to identical dependency versions.
+# Only .rs.bk backup files are ignored.
+**/*.rs.bk

@@ -1,0 +1,60 @@
+{
+  "name": "nova",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A futuristic, extensible and lightweight desktop browser built with Tauri and React.",
+  "author": "AeteX",
+  "license": "MIT",
+  "homepage": "https://github.com/AeteX/nova",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AeteX/nova.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AeteX/nova/issues"
+  },
+  "keywords": [
+    "browser",
+    "tauri",
+    "react",
+    "rust",
+    "desktop",
+    "ai",
+    "llama-cpp",
+    "extensions",
+    "webbrowser"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "clean": "rimraf dist src-tauri/target",
+    "clean:frontend": "rimraf dist",
+    "clean:rust": "cargo clean --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-http": "^2.8.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^6.0.2",
+    "rimraf": "^6.0.1",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16"
+  }
+}
