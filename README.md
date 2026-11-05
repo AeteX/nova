@@ -4,10 +4,10 @@
 
 **A futuristic, extensible desktop browser built with Tauri and React.**
 
-[![Release](https://img.shields.io/github/v/release/YOUR_USERNAME/nova?style=flat-square&color=00e5ff)](https://github.com/YOUR_USERNAME/nova/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/YOUR_USERNAME/nova/build.yml?style=flat-square&label=build)](https://github.com/YOUR_USERNAME/nova/actions)
-[![License](https://img.shields.io/github/license/YOUR_USERNAME/nova?style=flat-square&color=7c4dff)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-windows-00e5ff?style=flat-square)](https://github.com/YOUR_USERNAME/nova/releases)
+[![Release](https://img.shields.io/github/v/release/AeteX/nova?style=flat-square&color=00e5ff)](https://github.com/AeteX/nova/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/AeteX/nova/build.yml?style=flat-square&label=build)](https://github.com/AeteX/nova/actions)
+[![License](https://img.shields.io/github/license/AeteX/nova?style=flat-square&color=7c4dff)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-windows-00e5ff?style=flat-square)](https://github.com/AeteX/nova/releases)
 [![Tauri](https://img.shields.io/badge/tauri-2.x-24c8db?style=flat-square&logo=tauri)](https://tauri.app)
 
 [Download](#installation) · [Screenshots](#screenshots) · [Features](#features) · [Shortcuts](#keyboard-shortcuts) · [Extensions](#extension-sdk) · [Development](#development) · [Changelog](CHANGELOG.md)
@@ -162,7 +162,7 @@ Every shortcut works whether the address bar or a web page has focus.
 
 ## Installation
 
-Download the latest release from the [Releases page](https://github.com/YOUR_USERNAME/nova/releases).
+Download the latest release from the [Releases page](https://github.com/AeteX/nova/releases).
 
 | Platform | File | Notes |
 |---|---|---|
@@ -230,7 +230,7 @@ has been reported yet — expect to fix some compile issues if you try.
 ### Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/nova.git
+git clone https://github.com/AeteX/nova.git
 cd nova
 npm install
 ```
