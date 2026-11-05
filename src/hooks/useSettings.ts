@@ -41,6 +41,60 @@ export const DEFAULT_QUICK_LINKS: QuickLink[] = [
 
 export const BROWSER_NAME = "Nova";
 
+export type WindowControlsStyle = "macos" | "windows";
+
+export type ToolbarItemId =
+  | "nav"
+  | "address-bar"
+  | "cmd"
+  | "history"
+  | "bookmarks"
+  | "ext"
+  | "ai"
+  | "downloads"
+  | "new-tab"
+  | "settings";
+
+export interface ToolbarLayoutItem {
+  id: ToolbarItemId;
+  hidden: boolean;
+}
+
+export const VALID_TOOLBAR_ITEMS: ToolbarItemId[] = [
+  "nav",
+  "address-bar",
+  "cmd",
+  "history",
+  "bookmarks",
+  "ext",
+  "ai",
+  "downloads",
+  "new-tab",
+  "settings",
+];
+
+/**
+ * Toolbar items that are not allowed to be hidden. The address bar is the
+ * only primary navigation element — hiding it would trap the user since
+ * Ctrl+L focuses an invisible input. Every other item is freely toggleable.
+ */
+export const PROTECTED_TOOLBAR_ITEMS: ReadonlySet<ToolbarItemId> = new Set([
+  "address-bar",
+]);
+
+export const DEFAULT_TOOLBAR_LAYOUT: ToolbarLayoutItem[] = [
+  { id: "nav", hidden: false },
+  { id: "address-bar", hidden: false },
+  { id: "cmd", hidden: false },
+  { id: "history", hidden: false },
+  { id: "bookmarks", hidden: false },
+  { id: "ext", hidden: false },
+  { id: "ai", hidden: false },
+  { id: "downloads", hidden: false },
+  { id: "new-tab", hidden: false },
+  { id: "settings", hidden: false },
+];
+
 export interface Settings {
   searchEngine: SearchEngineId;
   customSearchUrl: string;
@@ -49,6 +103,10 @@ export interface Settings {
   customContextMenu: boolean;
   adBlockerEnabled: boolean;
   quickLinks: QuickLink[];
+  sessionRestore: boolean;
+  bookmarksToolbar: boolean;
+  windowControlsStyle: WindowControlsStyle;
+  toolbarLayout: ToolbarLayoutItem[];
   aiEnabled: boolean;
   aiServerUrl: string;
   aiModel: string;
@@ -64,6 +122,10 @@ export const DEFAULT_SETTINGS: Settings = {
   customContextMenu: false,
   adBlockerEnabled: false,
   quickLinks: DEFAULT_QUICK_LINKS,
+  sessionRestore: true,
+  bookmarksToolbar: false,
+  windowControlsStyle: "macos",
+  toolbarLayout: DEFAULT_TOOLBAR_LAYOUT,
   aiEnabled: false,
   aiServerUrl: "http://127.0.0.1:8080",
   aiModel: "gpt-3.5-turbo",
@@ -78,7 +140,40 @@ function load(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+
+    // Migrate old toolbarLayout shape: ToolbarItemId[] -> ToolbarLayoutItem[]
+    if (
+      Array.isArray(parsed.toolbarLayout) &&
+      parsed.toolbarLayout.length > 0 &&
+      typeof parsed.toolbarLayout[0] === "string"
+    ) {
+      parsed.toolbarLayout = (parsed.toolbarLayout as string[]).map((id) => ({
+        id: id as ToolbarItemId,
+        hidden: false,
+      }));
+    }
+
+    const merged: Settings = { ...DEFAULT_SETTINGS, ...parsed };
+
+    // Filter out invalid toolbar items and force-protect protected ones
+    if (Array.isArray(merged.toolbarLayout)) {
+      const validSet = new Set<string>(VALID_TOOLBAR_ITEMS);
+      merged.toolbarLayout = merged.toolbarLayout
+        .filter((item) => item && validSet.has(item.id))
+        .map((item) => ({
+          id: item.id,
+          hidden: PROTECTED_TOOLBAR_ITEMS.has(item.id) ? false : !!item.hidden,
+        }));
+    } else {
+      merged.toolbarLayout = DEFAULT_TOOLBAR_LAYOUT;
+    }
+
+    if (merged.toolbarLayout.length === 0) {
+      merged.toolbarLayout = DEFAULT_TOOLBAR_LAYOUT;
+    }
+
+    return merged;
   } catch {
     return DEFAULT_SETTINGS;
   }

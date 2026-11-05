@@ -10,168 +10,205 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - Complete Windows ad blocker — see Known limitations for details
 - macOS build validation and first successful compile
-- Extension side panel and popup surfaces
-- Command palette (`Ctrl+K`)
-- History and bookmarks
-- Session restore on restart
-- Full EasyList → WebKit JSON converter for macOS filter coverage
+- Extension popup surface (side panel is implemented, popup is not)
+- History and bookmarks export / import
+- Tab groups
+- Custom new-tab layout editor
 - Extension signing (Ed25519)
 - Auto-update via the Tauri updater
 
-## [0.1.0] - 2026-10-17
+## [0.1.1] - 2026-11-05
 
-Initial public release. Nova is a browser shell built on Tauri v2 and React 19,
-currently validated on Windows only.
+Second release. Focused on completing the browser feature set — history,
+bookmarks, session restore, command palette, extension panels, and a full
+keyboard shortcut layer — plus a UI redesign that trades the "demo" aesthetic
+for something closer to a professional product.
 
 ### ⚠️ Platform support
 
 | Platform | Status |
 |---|---|
-| **Windows 10 / 11** | Tested and working. This is the only platform the developer has run the app on. |
-| **macOS** | **Untested.** The code exists — Rust modules, capabilities, WebKit Content Rule List integration, build paths — but has never been compiled or run on macOS hardware because the developer does not own a Mac. It may fail to build out of the box, or build and misbehave in ways that have not been observed. Treat macOS as experimental until a release note says otherwise. |
-| **Linux** | Not supported. Child webviews require X11 and do not work on Wayland, which is the default on every major distribution. Out of scope for 0.1.x. |
-| **Android / iOS** | Not supported. Tauri's mobile platform does not expose child webviews, which Nova's tab model requires. |
+| **Windows 10 / 11** | Tested and working. |
+| **macOS** | **Untested.** Code exists but has never been compiled or run. |
+| **Linux** | Not supported. |
+| **Android / iOS** | Not supported. |
 
 ### ⚠️ Feature status: ad blocker
 
-The ad blocker is **in progress and not complete**. This is not a caveat about coverage — it is a statement that the feature does not currently do what a user would expect.
-
-- The `adblock-rust` engine loads EasyList successfully. The diagnostic panel in Settings reports a rule count of ~82,000 rules.
-- The engine correctly evaluates URLs when tested manually via the `diagnose_url` command. `pagead2.googlesyndication.com` returns `blocked: true` when tested directly.
-- The request interception layer is not reliable in practice. On the adblocktester.com suite, Nova scores around 8–11% blocked, compared to 80–90% for Brave and uBlock Origin on the same suite. This indicates that the `WebResourceRequested` COM handler is not firing for most requests, or is firing with incomplete context.
-- Pause, cancel, and download controls are unaffected.
-
-Do not file "ad blocker doesn't work" as a bug — it is a known, tracked issue. If you can help debug why the `ICoreWebView2_22` handler is not intercepting, contributions are welcome.
+Unchanged from 0.1.0. The engine loads EasyList correctly (~82,000 rules) and
+evaluates URLs when tested via the diagnostic panel, but request interception
+in the live browser is not reliable. On the adblocktester.com suite Nova
+scores around 8–11% blocked, versus 80–90% for Brave and uBlock Origin. This
+remains a known, tracked issue.
 
 ### Added
 
-#### Core browser
-- Native tab model where each tab is a real child webview, not an iframe
-- Tab strip with equal-width shrinking, horizontal scroll, and an overflow
-  menu for hidden tabs
-- Back / forward / reload with per-tab history stack and disabled-state
-  indicators
-- Address bar with search engine fallback, domain auto-detection, and
-  loading-state glow
-- Animated page-load progress bar driven by Rust `on_page_load` events
-- macOS-style traffic-light window controls (close / minimize / maximize)
-  that work cross-platform on Windows and macOS
-- Persistent per-tab zoom via Ctrl+=, Ctrl+-, Ctrl+0, and Ctrl+scroll,
-  plus a toolbar percentage button with preset menu
+#### History and bookmarks
+- Browsing history is recorded automatically on every successful page load
+  with the page title and visit timestamp
+- `nova://history` page with date-grouped entries, live search, per-entry
+  removal, and clear-all
+- Bookmarks with a star toggle in the address bar
+- `Ctrl+D` keyboard shortcut for bookmark toggle, works from both the address
+  bar and any focused page
+- Optional bookmarks bar below the tab strip, off by default, toggleable in
+  Settings or via `Ctrl+Shift+B`
+- `nova://bookmarks` page with search and per-entry removal
+- "Bookmark this page" action appears as the first row in the command palette
+  when the query mentions bookmark or is empty
 
-#### Custom homepage
-- `nova://home` internal page with live clock, time-aware greeting, and
-  animated perspective grid background
-- Central search bar with `/` keyboard shortcut to focus and
-  Ctrl+Enter to open in a new tab
-- Customizable quick links with favicon fetching, gradient letter
-  fallbacks, and an add-shortcut modal
-- Recent downloads strip that appears when at least one download exists
-- One-click access to settings, AI panel, and the full downloads page
+#### Search history
+- Queries typed into the address bar that aren't URLs are recorded to a
+  separate search history
+- Recent searches surface in the command palette and on the history page
+- Search history is cleared independently from browsing history
 
-#### Settings
-- `nova://settings` internal page rendered as a dedicated tab
-- Search engine picker: DuckDuckGo, Google, Bing, Brave, Startpage,
-  Ecosia, and custom URL template
-- Homepage configuration
-- Accent color system with six presets and a custom color picker that
-  propagates live to every surface via CSS variables
-- Custom context menu toggle (off by default)
-- AI assistant configuration: server URL, model name, system prompt, and
-  temperature
-- Ad blocker toggle with rule count display (see feature status above)
-- Extensions manager UI
-- Reset-to-defaults confirmation flow
-- All settings persist to `localStorage` and survive restarts
+#### Session restore
+- Open tabs, active tab, per-tab history stack, and history position are all
+  saved on shutdown and restored on launch
+- Toggle in Settings → Behavior to disable, which also clears the saved
+  session immediately
+- Restore is debounced by 500 ms so rapid tab changes don't thrash the disk
 
-#### AI assistant
-- Slide-in sidebar (shrink-to-fit, not overlay) triggered from the toolbar
-- Streaming chat completions against any llama.cpp server via the
-  OpenAI-compatible `/v1/chat/completions` endpoint
-- Tool calling loop with six rounds of follow-up: the model can navigate,
-  open tabs, search the web, close tabs, list open tabs, read the current
-  page URL, change search engine, change accent color, and change homepage
-- Animated orb in the header with four states: idle, connecting, streaming,
-  and error
-- Per-tool-call cards with scanning-beam, success flash, and shake-on-error
-  animations
-- Stop generation button and clear conversation action
-- Cyberpunk visual treatment: animated perspective grid, horizontal
-  scanline, holographic message bubbles, and message-in slide animations
+#### Command palette
+- `Ctrl+K` opens from anywhere, including from a focused page
+- Unified search across history, bookmarks, recent searches, and browser
+  actions
+- URL detection — typing a domain offers "Go to" as the top result
+- Search fallback — anything else offers "Search for" as the top result
+- `Ctrl+Enter` opens any URL result in a new tab; the current tab stays put
+- Arrow-key navigation, Enter to select, Escape to close
+- Selected row is highlighted with an accent bar; a `⌘↵ new tab` hint appears
+  on the right when the result supports it
 
-#### Extension system
-- Manifest-based extension discovery from a per-user directory
-- Two-tier architecture: built-in extensions in host context, installed
-  extensions in sandboxed cross-origin iframes served over `nova-ext://`
-- Two-layer permission enforcement: frontend router checks and Rust-side
-  re-validation on every IPC call
-- Path-traversal guards on both protocol and command handlers
-- Typed SDK with `tabs`, `storage`, `runtime`, `contentScripts`, and `ui`
-  namespaces
-- Content script registration and URL glob matching
-- Extensions manager UI in settings with permissions display, refresh,
-  and uninstall
-- Bundled SDK served from the Rust binary at `nova-ext://__sdk__/nova-ext-sdk.js`
+#### Extension side panels
+- Extensions that declare `"ui": { "panel": "panel.html" }` in their manifest
+  now get a toolbar entry
+- Clicking a panel entry opens the extension's HTML in the right sidebar
+  (sharing the slot with the AI assistant)
+- Extension panels and the AI sidebar are mutually exclusive — opening one
+  closes the other
+- Extensions with only a `"ui": { "popup": "popup.html" }` field are also
+  surfaced, rendered in the same panel slot as a fallback
 
-#### Downloads
-- Streaming downloads via `reqwest` with byte-count events emitted to the
-  frontend
-- Native popover window (`downloads-popover`) rendered as a separate React
-  root with its own event loop, immune to page-level interference
-- Compact popover showing the four most recent downloads with a
-  "Show all" footer
-- Full `nova://downloads` page listing every download with filename, status,
-  size, source page URL, file URL, saved path, and per-item actions
-- Pause / resume / cancel controls per download
-- Open file and show-in-folder actions on completed downloads
-- Automatic filename de-duplication and sanitization
+#### Customizable UI
+- **Window controls style** setting: choose between macOS traffic lights
+  (default) or Windows-style minimize / maximize / close buttons
+- **Reorderable toolbar**: eleven items — navigation cluster, address bar,
+  command palette, history, bookmarks list, extensions, AI, downloads, new
+  tab, settings — can be moved up or down in Settings → Toolbar
+- Items that depend on state (AI when disabled, extensions when none have UI,
+  bookmark star on internal pages) render nothing when inapplicable, so the
+  layout doesn't break
+- Reset-to-default button appears in the layout editor when the current
+  layout differs from the default
 
-#### Ad blocker (in progress)
-- `adblock-rust` engine loaded with bundled EasyList at startup
-- Engine evaluates URLs correctly when tested directly
-- Windows: `WebResourceRequested` COM handler attached to every child
-  webview via `ICoreWebView2_22` — **interception is incomplete, see the
-  feature status section above**
-- Diagnostic command (`diagnose_url`) for testing individual URLs against
-  the engine
-- macOS scaffolding via `WKContentRuleList` (compiled at startup, attached
-  to every webview) — **untested, see Platform support**
+#### Keyboard shortcuts
+Full shortcut layer that works whether the page or the chrome has focus. The
+listener in `injection.rs` routes page-level keydowns through the same
+`nova-action.local` sentinel-navigation mechanism already used for downloads
+and context menus.
 
-#### Custom context menu (opt-in)
-- Neon-styled right-click menu rendered as DOM inside the page, avoiding the
-  native webview occlusion problem
-- Context-sensitive items: navigation, clipboard, link actions, image
-  actions, and page-wide commands
-- Action routing via sentinel navigation, bypassing the IPC isolation on
-  external-origin pages
+| Shortcut | Action |
+|---|---|
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close active tab |
+| `Ctrl+Shift+T` | Reopen last closed tab (up to 20) |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle tabs forward / backward |
+| `Ctrl+1` … `Ctrl+8` | Jump to tab N |
+| `Ctrl+9` | Jump to last tab |
+| `Ctrl+L` / `F6` | Focus address bar (selects text) |
+| `Ctrl+R` / `F5` | Reload |
+| `Alt+←` / `Alt+→` | Back / forward |
+| `Ctrl+D` | Toggle bookmark |
+| `Ctrl+K` | Open command palette |
+| `Ctrl+Shift+B` | Toggle bookmarks bar |
+| `Escape` | Close topmost overlay, or revert address bar to current URL |
 
-#### Build & release
-- Cross-platform build scripts (`scripts/build.ps1`, `scripts/build.sh`,
-  `scripts/build.bat`) with `-Clean`, `-FrontendOnly`, `-NoBundle`,
-  `-SkipInstall`, and `-NoPause` flags
-- Prerequisite checking with actionable install hints
-- Automatic artifact reporting with file sizes
-- CI workflow that type-checks the frontend and runs `cargo check` on every
-  push, and builds Windows installers on `main`
+#### Tab management
+- Middle-click a tab in the strip to close it
+- Middle-click a tab in the overflow menu to close it
+- Closing a background tab doesn't activate it first — the middle-click
+  handler runs on `mousedown` so the tab closes without a visible flicker
+- Closed tabs are pushed onto a session-scoped stack that `Ctrl+Shift+T` pops
 
-### Known limitations
+### Changed
 
-- **macOS is untested.** No macOS binary has ever been produced by the
-  developer. The code paths exist and compile in principle, but have not
-  been validated. If you build on macOS and it works, please open an issue
-  to say so.
-- **The ad blocker does not currently block the majority of ad requests.**
-  See the feature status section above. This is the single largest known
-  gap in the 0.1.0 release.
-- Requests from cross-origin iframes may not surface through the parent
-  webview's handler, which is the suspected cause of the ad blocker's low
-  coverage.
-- The AI assistant requires a running llama.cpp server. It is disabled by
-  default.
-- Extensions cannot yet render a popup or side panel UI. The manifest
-  fields exist but the UI surfaces are not implemented.
-- Session state (open tabs, scroll positions) is not restored on restart.
-- No history or bookmarks yet.
+#### Visual redesign
+The previous build used a heavily glassmorphic style — backdrop-filter on
+every surface, cyan glow shadows on hover, animated backgrounds, drifting
+grids — which read as "demo app" rather than "product". The redesign keeps
+the cyberpunk identity (dark palette, cyan and violet accents, ambient
+spotlight, orb animation) but moves the depth and motion to where they'll look good.
+
+- **Solid surfaces** with three distinct elevation levels instead of
+  translucent glass everywhere. Glass is now reserved for floating elements:
+  command palette, tabs overflow menu, downloads popover.
+- **Real shadows** for elevation instead of glow halos. Buttons lift 0.5 px
+  on hover and press down 0.5 px on click — the tactile physics that
+  professional UI uses.
+- **One accent color, used sparingly** — the accent now appears only on
+  focus rings, the active AI button, the current tab indicator, the loading
+  bar, and primary buttons. Before, it was on every border and every hover
+  state.
+- **Choreographed entrance animations** on every modal, panel, and page —
+  scale + translate + blur resolving simultaneously over 260–320 ms instead
+  of appearing instantly. Motion happens on state change, not perpetually.
+- **AI orb retained** as the single ambient animation — two rings rotating
+  slowly in opposite directions with a breathing core. This is the "the
+  assistant is alive" signal; everything else is static.
+- **Reduced motion respected** — `prefers-reduced-motion` collapses all
+  animations to instant.
+- **The accent color setting now actually works.** The `--nv-accent` CSS
+  variable reads from `--nova-accent`, which `useSettings.ts` writes when
+  the user picks a color. Earlier builds hardcoded cyan and silently ignored
+  the setting.
+
+#### Address bar
+- The bookmark star moved into the address bar (right side) instead of being
+  a separate toolbar button. This mirrors how Safari and Arc handle it, and
+  frees a toolbar slot for the customizable layout.
+- `Escape` in the address bar now blurs the input and reverts the text to
+  the current URL, matching Chrome and Firefox.
+
+#### Toolbar
+- The bookmarks list button icon changed from `★` to `☰` to distinguish it
+  from the bookmark toggle star. Previously there were two star-shaped
+  buttons with different functions, which was confusing.
+
+#### Downloads page
+- `nova://downloads` was rendering unstyled after a CSS consolidation that
+  accidentally removed the `.nova-dlp-*` rules. All downloads page styles
+  restored and restyled to match the new theme.
+
+### Fixed
+
+- **Address bar not updating on navigation**: clicking a link or being
+  redirected now updates the address bar and tab title correctly. The tab
+  state and the webview URL stay in sync via a shared `requestedUrlRef` that
+  records the URL each webview is actually showing, so the mount effect
+  doesn't destroy and recreate the webview on webview-initiated navigation.
+- **Reload loaded the wrong URL**: fixed as a side effect of the address bar
+  sync bug. Reload now targets the URL the tab is actually on.
+- **DPI scaling**: child webviews were rendering at the wrong size on
+  high-DPI Windows displays after a WebView2 update. Fixed by switching
+  from `PhysicalPosition` / `PhysicalSize` to `LogicalPosition` /
+  `LogicalSize` in both `create_tab_webview` and the resize loop, letting
+  Tauri and WebView2 handle the scale factor.
+- **`Ctrl+D` and `Ctrl+K` didn't work when a page had focus**: they were
+  only attached to the host window. Now they're captured in the injected
+  nav script (which runs inside the child webview) and routed through the
+  sentinel mechanism, so they fire regardless of which webview has focus.
+- **`on_web_resource_request` was not the right API for ad blocking**:
+  documented in 0.1.0's known limitations. No change to that in 0.1.1.
+
+### Removed
+
+- **Zoom feature**: `Ctrl+=`, `Ctrl+-`, `Ctrl+0`, and `Ctrl+scroll` were
+  unreliable and have been removed entirely. Those key combinations now pass
+  through to the page's own handlers. The ZoomMenu component, the
+  `set_webview_zoom` Rust command, and the zoom-related injection handlers
+  are gone.
 
 ### Security
 
@@ -180,8 +217,76 @@ Do not file "ad blocker doesn't work" as a bug — it is a known, tracked issue.
 - The `nova-ext://` protocol blocks path traversal attempts.
 - Extension iframes are cross-origin and cannot access the host DOM, cookies,
   or other extensions' data.
-- The AI tool loop can only call the same functions the user can trigger
-  from the toolbar; there is no privilege escalation.
+- The AI tool loop can only call the same functions the user can trigger from
+  the toolbar; there is no privilege escalation.
+
+## [0.1.0] - 2026-10-17
+
+Initial public release. Nova is a browser shell built on Tauri v2 and React
+19, currently validated on Windows only.
+
+### ⚠️ Platform support
+
+| Platform | Status |
+|---|---|
+| **Windows 10 / 11** | Tested and working. |
+| **macOS** | Untested — code exists, never compiled or run. |
+| **Linux** | Not supported (Wayland incompatibility). |
+| **Android / iOS** | Not supported (Tauri lacks child webviews on mobile). |
+
+### ⚠️ Feature status: ad blocker
+
+The ad blocker is in progress and not complete. The engine loads EasyList
+correctly (~82,000 rules) and evaluates URLs when tested directly, but
+request interception in the live browser is not reliable. On
+adblocktester.com Nova scores around 8–11% blocked, versus 80–90% for
+Brave and uBlock Origin. This is a known, tracked issue.
+
+### Added
+
+- Native tab model where each tab is a real child webview
+- Tab strip with equal-width shrinking, horizontal scroll, and overflow menu
+- Back / forward / reload with per-tab history stack
+- Address bar with search engine fallback and loading-state glow
+- Animated page-load progress bar driven by Rust `on_page_load` events
+- macOS-style traffic-light window controls
+- Custom homepage at `nova://home` with live clock, quick links, recent
+  downloads strip
+- `nova://settings` internal page with search engine picker, homepage,
+  accent color, AI config, ad blocker toggle, extensions manager
+- AI assistant with streaming chat, tool calling (navigate, open tabs,
+  search, close tabs, list tabs, read page URL, change settings), animated
+  orb, tool call cards
+- Extension system with manifest discovery, sandboxed iframes over
+  `nova-ext://`, typed SDK, two-layer permission enforcement
+- Downloads manager with native popover window, per-download progress,
+  pause / resume / cancel, `nova://downloads` page with source page URLs
+  and saved paths
+- Ad blocker with `adblock-rust` engine and EasyList, diagnostic panel
+- Optional custom context menu rendered as DOM inside the page
+- Cross-platform build scripts (`scripts/build.ps1`, `scripts/build.sh`,
+  `scripts/build.bat`) with flags for clean, frontend-only, no-bundle,
+  skip-install, no-pause
+- CI workflow that type-checks the frontend and runs `cargo check` on
+  every push, builds Windows installers on main
+
+### Known limitations
+
+- macOS is untested.
+- The ad blocker does not currently block the majority of ad requests.
+- The AI assistant requires a running llama.cpp server.
+- Extensions cannot yet render a popup or side panel UI. The manifest fields
+  exist but the UI surfaces are not implemented. (Fixed in 0.1.1 for
+  side panels.)
+- Session state is not restored on restart. (Fixed in 0.1.1.)
+- No history or bookmarks. (Fixed in 0.1.1.)
+
+### Security
+
+- Extension IPC calls are validated twice.
+- The `nova-ext://` protocol blocks path traversal.
+- Extension iframes are cross-origin.
+- The AI tool loop has no privilege escalation.
 
 ## Version format
 
@@ -192,5 +297,6 @@ Do not file "ad blocker doesn't work" as a bug — it is a known, tracked issue.
 - **Fixed** for bug fixes
 - **Security** for security-relevant changes
 
-[Unreleased]: https://github.com/AeteX/nova/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/AeteX/nova/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Aetex/nova/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Aetex/nova/releases/tag/v0.1.1
+[0.1.0]: https://github.com/Aetex/nova/releases/tag/v0.1.0

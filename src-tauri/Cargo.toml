@@ -1,6 +1,6 @@
 [package]
 name = "nova"
-version = "0.1.0"
+version = "0.1.1"
 description = "A futuristic and lightweight browser with AI and extensions"
 authors = ["AeteX"]
 edition = "2021"

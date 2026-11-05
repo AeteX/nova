@@ -7,28 +7,49 @@ import {
 } from "react";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-// ── Changed: Import Logical instead of Physical ──
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import SettingsPage from "./Settings";
 import DownloadsPage from "./DownloadsPage";
 import HomePage from "./HomePage";
+import HistoryPage from "./HistoryPage";
+import BookmarksPage from "./BookmarksPage";
+import CommandPalette from "./CommandPalette";
+import BookmarksBar from "./BookmarksBar";
 import AIPanel from "./AIPanel";
-import ZoomMenu from "./ZoomMenu";
 import ExtensionFrame from "../extension-host/ExtensionFrame";
-import { useSettings, BROWSER_NAME } from "../hooks/useSettings";
+import ExtensionPanelView from "./ExtensionPanelView";
+import ExtensionPanelsMenu from "./ExtensionPanelsMenu";
+import {
+  useSettings,
+  BROWSER_NAME,
+  type ToolbarItemId,
+} from "../hooks/useSettings";
 import { useExtensions } from "../hooks/useExtensions";
 import { useDownloads } from "../hooks/useDownloads";
+import { useBookmarks } from "../hooks/useStorage";
 import { buildToolset } from "../hooks/useAITools";
 
 interface Tab {
   id: string;
   title: string;
   url: string;
-  zoom: number;
   history: string[];
   historyIndex: number;
+}
+
+interface SessionTabPayload {
+  id: string;
+  url: string;
+  title: string;
+  history: string[];
+  history_index: number;
+}
+
+interface SessionPayload {
+  tabs: SessionTabPayload[];
+  active_tab_id: string | null;
 }
 
 type ContextAction =
@@ -50,8 +71,11 @@ let tabCounter = 0;
 
 const SETTINGS_URL = "nova://settings";
 const DOWNLOADS_URL = "nova://downloads";
+const HISTORY_URL = "nova://history";
+const BOOKMARKS_URL = "nova://bookmarks";
 const HOME_URL = "nova://home";
 const POPOVER_WIDTH = 320;
+const MAX_CLOSED_TABS = 20;
 
 function isInternalUrl(url: string): boolean {
   return url.startsWith("nova://");
@@ -61,14 +85,33 @@ function internalPageTitle(url: string): string {
   const path = url.replace(/^nova:\/\//, "").replace(/\/+$/, "");
   if (path === "settings") return "Settings";
   if (path === "downloads") return "Downloads";
+  if (path === "history") return "History";
+  if (path === "bookmarks") return "Bookmarks";
   if (path === "home" || path === "") return "New Tab";
   return "Nova";
+}
+
+interface ShortcutHandlers {
+  toggleBookmark: () => void;
+  commandPalette: () => void;
+  newTab: () => void;
+  closeTab: () => void;
+  reopenClosedTab: () => void;
+  nextTab: () => void;
+  prevTab: () => void;
+  jumpToTab: (n: number) => void;
+  focusAddress: () => void;
+  reload: () => void;
+  back: () => void;
+  forward: () => void;
+  toggleBookmarksBar: () => void;
 }
 
 export default function Browser() {
   const { settings, update, reset, getSearchUrl } = useSettings();
   const { extensions } = useExtensions();
   const { activeCount: activeDownloads } = useDownloads();
+  const { bookmarks, refresh: refreshBookmarks } = useBookmarks();
 
   const createNewTab = useCallback(
     (url?: string): Tab => {
@@ -81,7 +124,6 @@ export default function Browser() {
         id: `tab-${tabCounter}`,
         title,
         url: finalUrl,
-        zoom: 1.0,
         history: [finalUrl],
         historyIndex: 0,
       };
@@ -96,7 +138,12 @@ export default function Browser() {
   const [loadProgress, setLoadProgress] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
-  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [extMenuOpen, setExtMenuOpen] = useState(false);
+  const [activeExtensionPanelId, setActiveExtensionPanelId] = useState<
+    string | null
+  >(null);
+  const [isCurrentBookmarked, setIsCurrentBookmarked] = useState(false);
 
   const [tabsOverflowing, setTabsOverflowing] = useState(false);
   const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
@@ -108,11 +155,30 @@ export default function Browser() {
   const progressTimerRef = useRef<number | null>(null);
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const downloadsAnchorRef = useRef<HTMLDivElement>(null);
-  const zoomAnchorRef = useRef<HTMLDivElement>(null);
+  const extMenuAnchorRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
   const requestedUrlRef = useRef<Record<string, string>>({});
   const tabsRef = useRef(tabs);
+  const sessionRestoredRef = useRef(false);
+  const initialSessionRestoreRef = useRef<boolean>(settings.sessionRestore);
+  const closedTabsRef = useRef<Tab[]>([]);
+
+  const shortcutHandlersRef = useRef<ShortcutHandlers>({
+    toggleBookmark: () => {},
+    commandPalette: () => {},
+    newTab: () => {},
+    closeTab: () => {},
+    reopenClosedTab: () => {},
+    nextTab: () => {},
+    prevTab: () => {},
+    jumpToTab: () => {},
+    focusAddress: () => {},
+    reload: () => {},
+    back: () => {},
+    forward: () => {},
+    toggleBookmarksBar: () => {},
+  });
 
   const activeTabIdRef = useRef(activeTabId);
   useEffect(() => {
@@ -127,11 +193,96 @@ export default function Browser() {
   const activeIsInternal = isInternalUrl(activeTab.url);
   const canGoBack = activeTab.historyIndex > 0;
   const canGoForward = activeTab.historyIndex < activeTab.history.length - 1;
+  const sidebarOpen = aiOpen || activeExtensionPanelId !== null;
 
+  const extensionsWithUI = useMemo(
+    () => extensions.filter((e) => e.manifest.ui?.panel || e.manifest.ui?.popup),
+    [extensions]
+  );
+
+  const activeExtensionPanel = useMemo(
+    () =>
+      extensions.find((e) => e.manifest.id === activeExtensionPanelId) ?? null,
+    [extensions, activeExtensionPanelId]
+  );
+
+  // ── Session restore on mount ────────────────────────────
+  useEffect(() => {
+    if (sessionRestoredRef.current) return;
+    sessionRestoredRef.current = true;
+
+    if (!initialSessionRestoreRef.current) return;
+
+    (async () => {
+      try {
+        const session = await invoke<SessionPayload>("session_get");
+        if (session.tabs.length === 0) return;
+        tabCounter = session.tabs.length;
+        const restored: Tab[] = session.tabs.map((t) => ({
+          id: t.id,
+          url: t.url,
+          title: t.title,
+          history: t.history,
+          historyIndex: t.history_index,
+        }));
+        setTabs(restored);
+        const activeId = session.active_tab_id ?? restored[0].id;
+        setActiveTabId(activeId);
+        const active = restored.find((t) => t.id === activeId) ?? restored[0];
+        setAddressBar(active.url);
+      } catch (e) {
+        console.error("session restore failed:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Clear saved session when disabled ───────────────────
+  useEffect(() => {
+    if (!settings.sessionRestore) {
+      invoke("session_save", {
+        session: { tabs: [], active_tab_id: null },
+      }).catch(() => {});
+    }
+  }, [settings.sessionRestore]);
+
+  // ── Save session on tab changes (debounced) ─────────────
+  useEffect(() => {
+    if (!sessionRestoredRef.current) return;
+    if (!settings.sessionRestore) return;
+    const t = window.setTimeout(() => {
+      const payload: SessionPayload = {
+        tabs: tabs.map((tab) => ({
+          id: tab.id,
+          url: tab.url,
+          title: tab.title,
+          history: tab.history.slice(-100),
+          history_index: Math.min(tab.historyIndex, 99),
+        })),
+        active_tab_id: activeTabId,
+      };
+      invoke("session_save", { session: payload }).catch(() => {});
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [tabs, activeTabId, settings.sessionRestore]);
+
+  // ── Track current page bookmark state ───────────────────
+  useEffect(() => {
+    if (activeIsInternal) {
+      setIsCurrentBookmarked(false);
+      return;
+    }
+    invoke<boolean>("bookmarks_is_bookmarked", { url: activeTab.url })
+      .then(setIsCurrentBookmarked)
+      .catch(() => setIsCurrentBookmarked(false));
+  }, [activeTab.url, activeIsInternal, bookmarks]);
+
+  // ── Window title ────────────────────────────────────────
   useEffect(() => {
     getCurrentWindow().setTitle(BROWSER_NAME).catch(() => {});
   }, []);
 
+  // ── Page load events ────────────────────────────────────
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
 
@@ -155,13 +306,11 @@ export default function Browser() {
               if (idx === -1) return prev;
               const t = prev[idx];
               if (t.url === url) return prev;
-
               const truncated = t.history.slice(0, t.historyIndex + 1);
               const next =
                 truncated[truncated.length - 1] === url
                   ? truncated
                   : [...truncated, url].slice(-100);
-
               const copy = [...prev];
               copy[idx] = {
                 ...t,
@@ -172,7 +321,6 @@ export default function Browser() {
               };
               return copy;
             });
-
             if (
               label === currentActiveTabId &&
               document.activeElement !== addressInputRef.current
@@ -205,6 +353,23 @@ export default function Browser() {
             setIsLoading(false);
             setLoadProgress(0);
           }, 340);
+
+          if (
+            url &&
+            !url.startsWith("nova://") &&
+            !url.startsWith("about:") &&
+            !url.startsWith("data:")
+          ) {
+            invoke("inject_js", {
+              label,
+              js: `try {
+                var t = document.title || '';
+                var u = window.location.href;
+                window.location.href = 'https://nova-action.local/page-title?title=' +
+                  encodeURIComponent(t) + '&page_url=' + encodeURIComponent(u);
+              } catch(e) {}`,
+            }).catch(() => {});
+          }
         }
       }
     ).then((fn) => {
@@ -220,6 +385,30 @@ export default function Browser() {
     };
   }, []);
 
+  // ── Page title capture → update tab + record history ────
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ label: string; title: string | null; url: string }>(
+      "browser://page-title",
+      (e) => {
+        const { label, title, url } = e.payload;
+        const finalTitle = title || url;
+
+        setTabs((prev) =>
+          prev.map((t) => (t.id === label ? { ...t, title: finalTitle } : t))
+        );
+
+        if (url && !url.startsWith("nova://")) {
+          invoke("history_record", { url, title: finalTitle }).catch(() => {});
+        }
+      }
+    ).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  // ── Inject context menu script ──────────────────────────
   useEffect(() => {
     if (!settings.customContextMenu) return;
     let unlisten: (() => void) | null = null;
@@ -228,10 +417,7 @@ export default function Browser() {
       if (e.payload.label !== activeTabId) return;
       try {
         const script = await invoke<string>("get_context_menu_script");
-        await invoke("inject_js", {
-          label: e.payload.label,
-          js: script,
-        });
+        await invoke("inject_js", { label: e.payload.label, js: script });
       } catch (err) {
         console.error("Failed to inject context menu script:", err);
       }
@@ -241,31 +427,26 @@ export default function Browser() {
     return () => unlisten?.();
   }, [activeTabId, settings.customContextMenu]);
 
+  // ── Mount webview for active tab ────────────────────────
   useEffect(() => {
     const previousLabel = webviewLabelRef.current;
-
     if (
       previousLabel === activeTab.id &&
       requestedUrlRef.current[activeTab.id] === activeTab.url
     ) {
       return;
     }
-
     webviewLabelRef.current = null;
     if (previousLabel) {
       invoke("close_tab_webview", { label: previousLabel }).catch(() => {});
       setWebviewInstance(null);
     }
-
     if (activeIsInternal) return;
     if (!containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
     const label = activeTab.id;
-    const zoom = activeTab.zoom;
-
     requestedUrlRef.current[label] = activeTab.url;
-
     let cancelled = false;
 
     (async () => {
@@ -277,11 +458,9 @@ export default function Browser() {
           y: rect.top,
           width: rect.width,
           height: rect.height,
-          zoom,
         });
         if (cancelled) return;
         webviewLabelRef.current = label;
-
         const { Webview: WebviewClass } = await import(
           "@tauri-apps/api/webview"
         );
@@ -308,7 +487,7 @@ export default function Browser() {
     };
   }, []);
 
-  // ── Changed: Logical sizing loop ────────────────────────
+  // ── Resize webview to container ─────────────────────────
   useEffect(() => {
     if (!webviewInstance) return;
     let cancelled = false;
@@ -323,13 +502,10 @@ export default function Browser() {
       const node = containerRef.current;
       if (node) {
         const rect = node.getBoundingClientRect();
-        
-        // Use logical pixels directly, no flooring.
         const x = rect.left;
         const y = rect.top;
         const w = Math.max(1, rect.width);
         const h = Math.max(1, rect.height);
-        
         if (x !== lastX || y !== lastY) {
           lastX = x;
           lastY = y;
@@ -340,9 +516,7 @@ export default function Browser() {
         if (w !== lastW || h !== lastH) {
           lastW = w;
           lastH = h;
-          webviewInstance
-            .setSize(new LogicalSize(w, h))
-            .catch(() => {});
+          webviewInstance.setSize(new LogicalSize(w, h)).catch(() => {});
         }
       }
       rafId = requestAnimationFrame(tick);
@@ -354,6 +528,7 @@ export default function Browser() {
     };
   }, [webviewInstance]);
 
+  // ── Hide webview for tabs overflow menu ─────────────────
   useEffect(() => {
     if (!webviewInstance) return;
     if (tabsMenuOpen) {
@@ -363,17 +538,83 @@ export default function Browser() {
     }
   }, [tabsMenuOpen, webviewInstance]);
 
+  // ── Global keyboard shortcuts (host focus) ──────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (zoomMenuOpen) setZoomMenuOpen(false);
-      else if (tabsMenuOpen) setTabsMenuOpen(false);
-      else if (aiOpen) setAiOpen(false);
+      const ctrl = e.ctrlKey || e.metaKey;
+      const shift = e.shiftKey;
+      const alt = e.altKey;
+      const key = e.key.toLowerCase();
+      const h = shortcutHandlersRef.current;
+
+      if (e.key === "Escape") {
+        if (commandPaletteOpen) setCommandPaletteOpen(false);
+        else if (extMenuOpen) setExtMenuOpen(false);
+        else if (tabsMenuOpen) setTabsMenuOpen(false);
+        else if (sidebarOpen) {
+          setAiOpen(false);
+          setActiveExtensionPanelId(null);
+        }
+        return;
+      }
+
+      let matched = true;
+
+      if (ctrl && shift && !alt && key === "t") h.reopenClosedTab();
+      else if (ctrl && shift && !alt && e.key === "Tab") h.prevTab();
+      else if (ctrl && shift && !alt && key === "b") h.toggleBookmarksBar();
+      else if (ctrl && !shift && !alt && e.key === "Tab") h.nextTab();
+      else if (ctrl && !shift && !alt && /^[1-9]$/.test(e.key))
+        h.jumpToTab(parseInt(e.key, 10));
+      else if (ctrl && !shift && !alt && key === "t") h.newTab();
+      else if (ctrl && !shift && !alt && key === "w") h.closeTab();
+      else if (ctrl && !shift && !alt && key === "l") h.focusAddress();
+      else if (ctrl && !shift && !alt && key === "r") h.reload();
+      else if (ctrl && !shift && !alt && key === "d") h.toggleBookmark();
+      else if (ctrl && !shift && !alt && key === "k") h.commandPalette();
+      else if (!ctrl && !shift && !alt && e.key === "F5") h.reload();
+      else if (!ctrl && !shift && !alt && e.key === "F6") h.focusAddress();
+      else if (alt && !ctrl && !shift && e.key === "ArrowLeft") h.back();
+      else if (alt && !ctrl && !shift && e.key === "ArrowRight") h.forward();
+      else matched = false;
+
+      if (matched) e.preventDefault();
     };
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [aiOpen, tabsMenuOpen, zoomMenuOpen]);
+  }, [commandPaletteOpen, extMenuOpen, tabsMenuOpen, sidebarOpen]);
 
+  useEffect(() => {
+    if (!tabsMenuOpen) return;
+    const onClick = () => setTabsMenuOpen(false);
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, [tabsMenuOpen]);
+
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    listen("downloads-popover-opened", () => setDownloadsOpen(true)).then(
+      (fn) => unlisteners.push(fn)
+    );
+    listen("downloads-popover-closed", () => setDownloadsOpen(false)).then(
+      (fn) => unlisteners.push(fn)
+    );
+    return () => unlisteners.forEach((fn) => fn());
+  }, []);
+
+  useEffect(() => {
+    if (!downloadsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const anchor = downloadsAnchorRef.current;
+      if (anchor && anchor.contains(e.target as Node)) return;
+      invoke("hide_downloads_popover").catch(() => {});
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [downloadsOpen]);
+
+  // ── Tab strip overflow & scroll ─────────────────────────
   useEffect(() => {
     const el = tabsScrollRef.current;
     if (!el) return;
@@ -382,9 +623,6 @@ export default function Browser() {
       if (e.deltaY !== 0) {
         e.preventDefault();
         el.scrollLeft += e.deltaY;
-      } else if (e.deltaX !== 0) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaX;
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -394,9 +632,7 @@ export default function Browser() {
   useEffect(() => {
     const el = tabsScrollRef.current;
     if (!el) return;
-    const check = () => {
-      setTabsOverflowing(el.scrollWidth > el.clientWidth + 1);
-    };
+    const check = () => setTabsOverflowing(el.scrollWidth > el.clientWidth + 1);
     check();
     const ro = new ResizeObserver(check);
     ro.observe(el);
@@ -423,48 +659,7 @@ export default function Browser() {
     }
   }, [activeTabId]);
 
-  useEffect(() => {
-    if (!tabsMenuOpen) return;
-    const onClick = () => setTabsMenuOpen(false);
-    window.addEventListener("click", onClick);
-    return () => window.removeEventListener("click", onClick);
-  }, [tabsMenuOpen]);
-
-  useEffect(() => {
-    if (!zoomMenuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      const anchor = zoomAnchorRef.current;
-      if (anchor && anchor.contains(e.target as Node)) return;
-      setZoomMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onClick);
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [zoomMenuOpen]);
-
-  useEffect(() => {
-    const unlisteners: Array<() => void> = [];
-    listen("downloads-popover-opened", () => setDownloadsOpen(true)).then(
-      (fn) => unlisteners.push(fn)
-    );
-    listen("downloads-popover-closed", () => setDownloadsOpen(false)).then(
-      (fn) => unlisteners.push(fn)
-    );
-    return () => {
-      unlisteners.forEach((fn) => fn());
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!downloadsOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const anchor = downloadsAnchorRef.current;
-      if (anchor && anchor.contains(e.target as Node)) return;
-      invoke("hide_downloads_popover").catch(() => {});
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [downloadsOpen]);
-
+  // ── Inter-tab / download / context-menu / shortcut listeners ─
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ url: string }>("browser://open-tab", (e) => {
@@ -512,58 +707,41 @@ export default function Browser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const applyZoom = useCallback(
-    async (label: string, action: "in" | "out" | "reset" | number) => {
-      const tab = tabsRef.current.find((t) => t.id === label);
-      if (!tab) return;
-
-      let next = tab.zoom;
-      if (typeof action === "number") {
-        next = Math.min(5.0, Math.max(0.25, action));
-      } else if (action === "in") {
-        next = Math.min(5.0, Math.round((tab.zoom + 0.1) * 100) / 100);
-      } else if (action === "out") {
-        next = Math.max(0.25, Math.round((tab.zoom - 0.1) * 100) / 100);
+  // ── Bookmark toggle ─────────────────────────────────────
+  const toggleBookmarkCurrent = useCallback(async () => {
+    if (activeIsInternal) return;
+    try {
+      if (isCurrentBookmarked) {
+        const found = bookmarks.find((b) => b.url === activeTab.url);
+        if (found) {
+          await invoke("bookmarks_remove", { id: found.id });
+          await refreshBookmarks();
+        }
       } else {
-        next = 1.0;
+        await invoke("bookmarks_add", {
+          url: activeTab.url,
+          title: activeTab.title || activeTab.url,
+        });
+        await refreshBookmarks();
       }
-
-      if (Math.abs(next - tab.zoom) < 0.001) return;
-
-      tabsRef.current = tabsRef.current.map((t) =>
-        t.id === label ? { ...t, zoom: next } : t
-      );
-
-      try {
-        await invoke("set_webview_zoom", { label, zoom: next });
-        setTabs((prev) =>
-          prev.map((t) => (t.id === label ? { ...t, zoom: next } : t))
-        );
-      } catch (err) {
-        console.error("Zoom failed:", err);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listen<{ label: string; action: string }>("browser://zoom", (e) => {
-      const a = e.payload.action;
-      if (a === "in" || a === "out" || a === "reset") {
-        applyZoom(e.payload.label, a);
-      }
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten?.();
-  }, [applyZoom]);
+    } catch (err) {
+      console.error("Bookmark toggle failed:", err);
+    }
+  }, [
+    activeIsInternal,
+    isCurrentBookmarked,
+    activeTab.url,
+    activeTab.title,
+    bookmarks,
+    refreshBookmarks,
+  ]);
 
   const navigate = useCallback(
     (raw: string) => {
       let url = raw.trim();
       if (!url) return;
 
+      let isSearch = false;
       if (isInternalUrl(url)) {
         url = url.replace(/^nova:\/\//, "nova://");
       } else if (!/^https?:\/\//i.test(url)) {
@@ -571,7 +749,12 @@ export default function Browser() {
           url = `https://${url}`;
         } else {
           url = getSearchUrl(url);
+          isSearch = true;
         }
+      }
+
+      if (isSearch) {
+        invoke("search_history_record", { query: raw.trim() }).catch(() => {});
       }
 
       const title = isInternalUrl(url) ? internalPageTitle(url) : url;
@@ -652,21 +835,44 @@ export default function Browser() {
     [createNewTab]
   );
 
-  const openSettings = useCallback(() => {
-    const existing = tabs.find((t) => t.url === SETTINGS_URL);
-    if (existing) {
-      setActiveTabId(existing.id);
-      setAddressBar(existing.url);
-      return;
-    }
-    const newTab = createNewTab(SETTINGS_URL);
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-    setAddressBar(newTab.url);
-  }, [tabs, createNewTab]);
+  const openInternal = useCallback(
+    (targetUrl: string) => {
+      const existing = tabs.find((t) => t.url === targetUrl);
+      if (existing) {
+        setActiveTabId(existing.id);
+        setAddressBar(existing.url);
+        return;
+      }
+      const newTab = createNewTab(targetUrl);
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      setAddressBar(newTab.url);
+    },
+    [tabs, createNewTab]
+  );
+
+  const openSettings = useCallback(
+    () => openInternal(SETTINGS_URL),
+    [openInternal]
+  );
+  const openHistory = useCallback(
+    () => openInternal(HISTORY_URL),
+    [openInternal]
+  );
+  const openBookmarks = useCallback(
+    () => openInternal(BOOKMARKS_URL),
+    [openInternal]
+  );
 
   const closeTab = useCallback(
     (id: string) => {
+      const closing = tabsRef.current.find((t) => t.id === id);
+      if (closing) {
+        closedTabsRef.current.push({ ...closing });
+        if (closedTabsRef.current.length > MAX_CLOSED_TABS) {
+          closedTabsRef.current.shift();
+        }
+      }
       setTabs((prev) => {
         const remaining = prev.filter((t) => t.id !== id);
         if (remaining.length === 0) {
@@ -687,6 +893,62 @@ export default function Browser() {
     },
     [activeTabId, createNewTab]
   );
+
+  const reopenClosedTab = useCallback(() => {
+    const last = closedTabsRef.current.pop();
+    if (!last) return;
+    tabCounter += 1;
+    const restored: Tab = {
+      id: `tab-${tabCounter}`,
+      title: last.title,
+      url: last.url,
+      history: last.history,
+      historyIndex: last.historyIndex,
+    };
+    setTabs((prev) => [...prev, restored]);
+    setActiveTabId(restored.id);
+    setAddressBar(restored.url);
+  }, []);
+
+  const cycleTab = useCallback((direction: 1 | -1) => {
+    const currentTabs = tabsRef.current;
+    if (currentTabs.length < 2) return;
+    const idx = currentTabs.findIndex(
+      (t) => t.id === activeTabIdRef.current
+    );
+    if (idx === -1) return;
+    const nextIdx =
+      (idx + direction + currentTabs.length) % currentTabs.length;
+    const next = currentTabs[nextIdx];
+    setActiveTabId(next.id);
+    setAddressBar(next.url);
+  }, []);
+
+  const jumpToTab = useCallback((n: number) => {
+    const currentTabs = tabsRef.current;
+    if (currentTabs.length === 0) return;
+    let idx: number;
+    if (n === 9) {
+      idx = currentTabs.length - 1;
+    } else {
+      idx = n - 1;
+    }
+    if (idx < 0 || idx >= currentTabs.length) return;
+    const tab = currentTabs[idx];
+    setActiveTabId(tab.id);
+    setAddressBar(tab.url);
+  }, []);
+
+  const focusAddressBar = useCallback(() => {
+    if (addressInputRef.current) {
+      addressInputRef.current.focus();
+      addressInputRef.current.select();
+    }
+  }, []);
+
+  const toggleBookmarksBar = useCallback(() => {
+    update({ bookmarksToolbar: !settings.bookmarksToolbar });
+  }, [update, settings.bookmarksToolbar]);
 
   const selectTab = (id: string) => {
     const tab = tabs.find((t) => t.id === id);
@@ -720,11 +982,9 @@ export default function Browser() {
   const handleContextAction = useCallback(
     async (action: ContextAction, payload?: string) => {
       const currentLabel = activeTabId;
-
       const copyText = async (text: string) => {
         try {
           await navigator.clipboard.writeText(text);
-          return;
         } catch {
           const ta = document.createElement("textarea");
           ta.value = text;
@@ -734,13 +994,10 @@ export default function Browser() {
           ta.select();
           try {
             document.execCommand("copy");
-          } catch {
-            // ignore
-          }
+          } catch {}
           document.body.removeChild(ta);
         }
       };
-
       const evalInPage = async (js: string) => {
         try {
           await invoke("inject_js", { label: currentLabel, js });
@@ -748,7 +1005,6 @@ export default function Browser() {
           console.error("inject_js failed:", err);
         }
       };
-
       const startDownload = async (url: string, suggested?: string) => {
         try {
           await invoke("start_download", {
@@ -803,8 +1059,6 @@ export default function Browser() {
         case "reload-frame":
           reload();
           break;
-        default:
-          break;
       }
     },
     [activeTabId, goBack, goForward, reload, openInNewTab, activeTab.url]
@@ -824,10 +1078,7 @@ export default function Browser() {
             url: t.url,
             active: t.id === activeTabId,
           })),
-        getCurrentTab: () => ({
-          title: activeTab.title,
-          url: activeTab.url,
-        }),
+        getCurrentTab: () => ({ title: activeTab.title, url: activeTab.url }),
         setSearchEngine: (id) => update({ searchEngine: id }),
         setAccentColor: (hex) => update({ accentColor: hex }),
         setHomepage: (url) => update({ homepage: url }),
@@ -844,6 +1095,276 @@ export default function Browser() {
       update,
     ]
   );
+
+  // ── Sync shortcut handlers ref ──────────────────────────
+  useEffect(() => {
+    shortcutHandlersRef.current = {
+      toggleBookmark: toggleBookmarkCurrent,
+      commandPalette: () => setCommandPaletteOpen(true),
+      newTab: () => {
+        addTab();
+      },
+      closeTab: () => closeTab(activeTabId),
+      reopenClosedTab,
+      nextTab: () => cycleTab(1),
+      prevTab: () => cycleTab(-1),
+      jumpToTab,
+      focusAddress: focusAddressBar,
+      reload: () => {
+        reload();
+      },
+      back: goBack,
+      forward: goForward,
+      toggleBookmarksBar,
+    };
+  });
+
+  // ── Shortcuts routed from page ──────────────────────────
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ key: string }>("browser://shortcut", (e) => {
+      const key = e.payload.key;
+      const h = shortcutHandlersRef.current;
+
+      if (key === "bookmark") h.toggleBookmark();
+      else if (key === "command-palette") h.commandPalette();
+      else if (key === "new-tab") h.newTab();
+      else if (key === "close-tab") h.closeTab();
+      else if (key === "reopen-closed-tab") h.reopenClosedTab();
+      else if (key === "next-tab") h.nextTab();
+      else if (key === "prev-tab") h.prevTab();
+      else if (key.startsWith("tab-")) {
+        const n = parseInt(key.slice(4), 10);
+        if (!isNaN(n)) h.jumpToTab(n);
+      } else if (key === "focus-address") h.focusAddress();
+      else if (key === "reload") h.reload();
+      else if (key === "back") h.back();
+      else if (key === "forward") h.forward();
+      else if (key === "toggle-bookmarks-bar") h.toggleBookmarksBar();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  // ── Toolbar item renderer ───────────────────────────────
+  const renderToolbarItem = (id: ToolbarItemId) => {
+    switch (id) {
+      case "nav":
+        return (
+          <div className="nova-nav-buttons" key={id}>
+            <button
+              className="nova-btn"
+              onClick={goBack}
+              disabled={!canGoBack}
+              title="Back (Alt+←)"
+              aria-label="Back"
+            >
+              ◀
+            </button>
+            <button
+              className="nova-btn"
+              onClick={goForward}
+              disabled={!canGoForward}
+              title="Forward (Alt+→)"
+              aria-label="Forward"
+            >
+              ▶
+            </button>
+            <button
+              className="nova-btn"
+              onClick={reload}
+              disabled={activeIsInternal}
+              title="Reload (F5 / Ctrl+R)"
+              aria-label="Reload"
+            >
+              ⟳
+            </button>
+          </div>
+        );
+
+      case "address-bar":
+        return (
+          <div
+            className={`nova-address-wrap ${
+              isLoading ? "nova-address-wrap--loading" : ""
+            }`}
+            key={id}
+          >
+            <input
+              ref={addressInputRef}
+              className="nova-address"
+              value={addressBar}
+              onChange={(e) => setAddressBar(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") navigate(addressBar);
+                else if (e.key === "Escape") {
+                  e.currentTarget.blur();
+                  setAddressBar(activeTab.url);
+                }
+              }}
+              placeholder={`Search with ${BROWSER_NAME} or enter address`}
+              spellCheck={false}
+            />
+            {!activeIsInternal && (
+              <button
+                className={`nova-address-bookmark ${
+                  isCurrentBookmarked ? "nova-address-bookmark--active" : ""
+                }`}
+                onClick={toggleBookmarkCurrent}
+                title={
+                  isCurrentBookmarked
+                    ? "Remove bookmark (Ctrl+D)"
+                    : "Bookmark this page (Ctrl+D)"
+                }
+                aria-label={
+                  isCurrentBookmarked
+                    ? "Remove bookmark"
+                    : "Bookmark this page"
+                }
+                tabIndex={-1}
+              >
+                {isCurrentBookmarked ? "★" : "☆"}
+              </button>
+            )}
+          </div>
+        );
+
+      case "cmd":
+        return (
+          <button
+            key={id}
+            className="nova-btn nova-btn--cmd"
+            onClick={() => setCommandPaletteOpen(true)}
+            title="Command palette (Ctrl+K)"
+            aria-label="Command palette"
+          >
+            ⌘
+          </button>
+        );
+
+      case "history":
+        return (
+          <button
+            key={id}
+            className="nova-btn nova-btn--history"
+            onClick={openHistory}
+            title="History"
+            aria-label="History"
+          >
+            ⏱
+          </button>
+        );
+
+      case "bookmarks":
+        return (
+          <button
+            key={id}
+            className="nova-btn nova-btn--bookmarks"
+            onClick={openBookmarks}
+            title="All bookmarks"
+            aria-label="All bookmarks"
+          >
+            ☰
+          </button>
+        );
+
+      case "ext":
+        if (extensionsWithUI.length === 0) return null;
+        return (
+          <div className="nova-ext-anchor" ref={extMenuAnchorRef} key={id}>
+            <button
+              className={`nova-btn nova-btn--ext ${
+                activeExtensionPanelId ? "nova-btn--ext-active" : ""
+              }`}
+              onClick={() => setExtMenuOpen((v) => !v)}
+              title="Extension panels"
+              aria-label="Extension panels"
+            >
+              ⬡
+            </button>
+            {extMenuOpen && (
+              <ExtensionPanelsMenu
+                extensions={extensionsWithUI}
+                onSelect={(eid) => {
+                  setActiveExtensionPanelId(eid);
+                  setAiOpen(false);
+                  setExtMenuOpen(false);
+                }}
+                onClose={() => setExtMenuOpen(false)}
+              />
+            )}
+          </div>
+        );
+
+      case "ai":
+        if (!settings.aiEnabled) return null;
+        return (
+          <button
+            key={id}
+            className={`nova-btn nova-btn--ai ${
+              aiOpen ? "nova-btn--ai-active" : ""
+            }`}
+            onClick={() => {
+              setAiOpen((v) => !v);
+              setActiveExtensionPanelId(null);
+            }}
+            title="AI Assistant"
+            aria-label="AI Assistant"
+          >
+            ◈
+          </button>
+        );
+
+      case "downloads":
+        return (
+          <div className="nova-dl-anchor" ref={downloadsAnchorRef} key={id}>
+            <button
+              className={`nova-btn nova-btn--downloads ${
+                downloadsOpen ? "nova-btn--downloads-active" : ""
+              }`}
+              onClick={toggleDownloads}
+              title="Downloads"
+              aria-label="Downloads"
+            >
+              ↓
+              {activeDownloads > 0 && (
+                <span className="nova-dl-badge">{activeDownloads}</span>
+              )}
+            </button>
+          </div>
+        );
+
+      case "new-tab":
+        return (
+          <button
+            key={id}
+            className="nova-btn nova-btn--new-tab"
+            onClick={addTab}
+            title="New tab (Ctrl+T)"
+            aria-label="New tab"
+          >
+            +
+          </button>
+        );
+
+      case "settings":
+        return (
+          <button
+            key={id}
+            className="nova-btn nova-btn--settings"
+            onClick={openSettings}
+            title="Settings"
+            aria-label="Settings"
+          >
+            ⚙
+          </button>
+        );
+
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="nova-root">
@@ -865,146 +1386,82 @@ export default function Browser() {
         />
       </div>
 
-      <header className="nova-toolbar">
-        <div className="nova-window-controls">
-          <button
-            className="nova-dot nova-dot--close"
-            onClick={handleClose}
-            title="Close"
-            aria-label="Close"
-          />
-          <button
-            className="nova-dot nova-dot--min"
-            onClick={handleMinimize}
-            title="Minimize"
-            aria-label="Minimize"
-          />
-          <button
-            className="nova-dot nova-dot--max"
-            onClick={handleToggleMaximize}
-            title="Maximize"
-            aria-label="Maximize"
-          />
-        </div>
-
-        <div className="nova-nav-buttons">
-          <button
-            className="nova-btn"
-            onClick={goBack}
-            disabled={!canGoBack}
-            title="Back"
-            aria-label="Back"
-          >
-            ◀
-          </button>
-          <button
-            className="nova-btn"
-            onClick={goForward}
-            disabled={!canGoForward}
-            title="Forward"
-            aria-label="Forward"
-          >
-            ▶
-          </button>
-          <button
-            className="nova-btn"
-            onClick={reload}
-            disabled={activeIsInternal}
-            title="Reload"
-            aria-label="Reload"
-          >
-            ⟳
-          </button>
-        </div>
-
-        <div
-          className={`nova-address-wrap ${
-            isLoading ? "nova-address-wrap--loading" : ""
-          }`}
-        >
-          <div className="nova-address-glow" />
-          <input
-            ref={addressInputRef}
-            className="nova-address"
-            value={addressBar}
-            onChange={(e) => setAddressBar(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") navigate(addressBar);
-            }}
-            placeholder={`Search with ${BROWSER_NAME} or enter address`}
-            spellCheck={false}
-          />
-        </div>
-
-        {!activeIsInternal && (
-          <div className="nova-zoom-anchor" ref={zoomAnchorRef}>
+      <header
+        className={`nova-toolbar nova-toolbar--${settings.windowControlsStyle}`}
+      >
+        {settings.windowControlsStyle === "macos" && (
+          <div className="nova-window-controls">
             <button
-              className={`nova-btn nova-btn--zoom ${
-                Math.abs(activeTab.zoom - 1.0) > 0.001
-                  ? "nova-btn--zoom-active"
-                  : ""
-              }`}
-              onClick={() => setZoomMenuOpen((v) => !v)}
-              title={`Zoom: ${Math.round(activeTab.zoom * 100)}%`}
-              aria-label="Zoom"
-            >
-              {Math.round(activeTab.zoom * 100)}%
-            </button>
-            {zoomMenuOpen && (
-              <ZoomMenu
-                zoom={activeTab.zoom}
-                onChange={(z) => applyZoom(activeTabId, z)}
-                onClose={() => setZoomMenuOpen(false)}
-              />
-            )}
+              className="nova-dot nova-dot--close"
+              onClick={handleClose}
+              title="Close"
+              aria-label="Close"
+            />
+            <button
+              className="nova-dot nova-dot--min"
+              onClick={handleMinimize}
+              title="Minimize"
+              aria-label="Minimize"
+            />
+            <button
+              className="nova-dot nova-dot--max"
+              onClick={handleToggleMaximize}
+              title="Maximize"
+              aria-label="Maximize"
+            />
           </div>
         )}
 
-        {settings.aiEnabled && (
-          <button
-            className={`nova-btn nova-btn--ai ${
-              aiOpen ? "nova-btn--ai-active" : ""
-            }`}
-            onClick={() => setAiOpen((v) => !v)}
-            title="AI Assistant"
-            aria-label="AI Assistant"
-          >
-            ◈
-          </button>
+        {settings.toolbarLayout
+          .filter((item) => !item.hidden)
+          .map((item) => renderToolbarItem(item.id))}
+
+        {settings.windowControlsStyle === "windows" && (
+          <div className="nova-win-controls">
+            <button
+              className="nova-win-btn"
+              onClick={handleMinimize}
+              title="Minimize"
+              aria-label="Minimize"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10">
+                <path d="M 2 5 L 8 5" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            </button>
+            <button
+              className="nova-win-btn"
+              onClick={handleToggleMaximize}
+              title="Maximize"
+              aria-label="Maximize"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10">
+                <rect
+                  x="2.5"
+                  y="2.5"
+                  width="5"
+                  height="5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            </button>
+            <button
+              className="nova-win-btn nova-win-btn--close"
+              onClick={handleClose}
+              title="Close"
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10">
+                <path
+                  d="M 2.5 2.5 L 7.5 7.5 M 7.5 2.5 L 2.5 7.5"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            </button>
+          </div>
         )}
-
-        <div className="nova-dl-anchor" ref={downloadsAnchorRef}>
-          <button
-            className={`nova-btn nova-btn--downloads ${
-              downloadsOpen ? "nova-btn--downloads-active" : ""
-            }`}
-            onClick={toggleDownloads}
-            title="Downloads"
-            aria-label="Downloads"
-          >
-            ↓
-            {activeDownloads > 0 && (
-              <span className="nova-dl-badge">{activeDownloads}</span>
-            )}
-          </button>
-        </div>
-
-        <button
-          className="nova-btn nova-btn--new-tab"
-          onClick={addTab}
-          title="New tab"
-          aria-label="New tab"
-        >
-          +
-        </button>
-        <button
-          className="nova-btn nova-btn--settings"
-          onClick={openSettings}
-          title="Settings"
-          aria-label="Settings"
-        >
-          ⚙
-        </button>
       </header>
 
       <div className="nova-tabs-wrap">
@@ -1016,6 +1473,18 @@ export default function Browser() {
                 tab.id === activeTabId ? "nova-tab--active" : ""
               }`}
               onClick={() => selectTab(tab.id)}
+              onMouseDown={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeTab(tab.id);
+                }
+              }}
+              onAuxClick={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault();
+                }
+              }}
             >
               <span className="nova-tab-title">{tab.title}</span>
               <button
@@ -1060,6 +1529,18 @@ export default function Browser() {
                       selectTab(tab.id);
                       setTabsMenuOpen(false);
                     }}
+                    onMouseDown={(e) => {
+                      if (e.button === 1) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        closeTab(tab.id);
+                      }
+                    }}
+                    onAuxClick={(e) => {
+                      if (e.button === 1) {
+                        e.preventDefault();
+                      }
+                    }}
                   >
                     <span className="nova-tabs-menu-item-title">
                       {tab.title}
@@ -1082,7 +1563,17 @@ export default function Browser() {
         )}
       </div>
 
-      <div className={`nova-main ${aiOpen ? "nova-main--ai-open" : ""}`}>
+      {settings.bookmarksToolbar && (
+        <BookmarksBar
+          bookmarks={bookmarks}
+          onNavigate={navigate}
+          onAddCurrentPage={toggleBookmarkCurrent}
+          currentUrl={activeTab.url}
+          currentIsBookmarked={isCurrentBookmarked}
+        />
+      )}
+
+      <div className={`nova-main ${sidebarOpen ? "nova-main--ai-open" : ""}`}>
         <div
           ref={containerRef}
           className="nova-content"
@@ -1100,6 +1591,16 @@ export default function Browser() {
               />
             ) : activeTab.url === DOWNLOADS_URL ? (
               <DownloadsPage onClose={() => closeTab(activeTabId)} />
+            ) : activeTab.url === HISTORY_URL ? (
+              <HistoryPage
+                onNavigate={navigate}
+                onClose={() => closeTab(activeTabId)}
+              />
+            ) : activeTab.url === BOOKMARKS_URL ? (
+              <BookmarksPage
+                onNavigate={navigate}
+                onClose={() => closeTab(activeTabId)}
+              />
             ) : activeTab.url === HOME_URL ||
               activeTab.url === "nova://home/" ||
               activeTab.url === "nova://" ? (
@@ -1124,13 +1625,38 @@ export default function Browser() {
         )}
 
         <aside className="nova-ai-sidebar">
-          <AIPanel
-            settings={settings}
-            tools={aiToolset}
-            onClose={() => setAiOpen(false)}
-          />
+          {activeExtensionPanel ? (
+            <ExtensionPanelView
+              extension={activeExtensionPanel}
+              onClose={() => setActiveExtensionPanelId(null)}
+            />
+          ) : (
+            <AIPanel
+              settings={settings}
+              tools={aiToolset}
+              onClose={() => setAiOpen(false)}
+            />
+          )}
         </aside>
       </div>
+
+      {commandPaletteOpen && (
+        <CommandPalette
+          getSearchUrl={getSearchUrl}
+          bookmarks={bookmarks}
+          onNavigate={navigate}
+          onOpenNewTab={openInNewTab}
+          onOpenSettings={openSettings}
+          onOpenHistory={openHistory}
+          onOpenBookmarks={openBookmarks}
+          onOpenDownloads={toggleDownloads}
+          onClose={() => setCommandPaletteOpen(false)}
+          onToggleBookmark={toggleBookmarkCurrent}
+          currentUrl={activeTab.url}
+          currentTitle={activeTab.title}
+          currentIsBookmarked={isCurrentBookmarked}
+        />
+      )}
     </div>
   );
 }

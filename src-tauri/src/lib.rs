@@ -3,6 +3,7 @@ mod downloads;
 mod extension;
 mod injection;
 mod popover;
+mod storage;
 
 #[cfg(windows)]
 mod adblocker_windows;
@@ -18,16 +19,11 @@ fn reload_webview(app: tauri::AppHandle, label: String) -> Result<(), String> {
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Webview '{label}' not found."))?;
-    webview
-        .reload()
-        .map_err(|e| format!("Failed to reload: {e}"))
+    webview.reload().map_err(|e| format!("Failed to reload: {e}"))
 }
 
 #[tauri::command]
-fn ext_build_init_script(
-    app: tauri::AppHandle,
-    url: String,
-) -> Result<Option<String>, String> {
+fn ext_build_init_script(app: tauri::AppHandle, url: String) -> Result<Option<String>, String> {
     extension::injection::build_init_script_for_url(&app, &url)
 }
 
@@ -51,14 +47,6 @@ fn get_context_menu_script() -> String {
 }
 
 #[tauri::command]
-fn set_webview_zoom(app: tauri::AppHandle, label: String, zoom: f64) -> Result<(), String> {
-    let webview = app
-        .get_webview(&label)
-        .ok_or_else(|| format!("Webview '{label}' not found."))?;
-    webview.set_zoom(zoom).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 async fn create_tab_webview(
     app: tauri::AppHandle,
     label: String,
@@ -67,7 +55,6 @@ async fn create_tab_webview(
     y: f64,
     width: f64,
     height: f64,
-    zoom: f64,
 ) -> Result<(), String> {
     let window = app
         .get_window("main")
@@ -78,9 +65,8 @@ async fn create_tab_webview(
     }
 
     let parsed: tauri::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
-
     let app_for_nav = app.clone();
-    let label_for_zoom = label.clone();
+    let label_for_nav = label.clone();
 
     let builder =
         tauri::webview::WebviewBuilder::new(&label, WebviewUrl::External(parsed))
@@ -96,6 +82,9 @@ async fn create_tab_webview(
                 let mut action = String::new();
                 let mut payload = String::new();
                 let mut source = String::new();
+                let mut title = String::new();
+                let mut page_url = String::new();
+                let mut shortcut_key = String::new();
 
                 for (k, v) in url.query_pairs() {
                     match k.as_ref() {
@@ -104,6 +93,9 @@ async fn create_tab_webview(
                         "action" => action = v.into_owned(),
                         "payload" => payload = v.into_owned(),
                         "source" => source = v.into_owned(),
+                        "title" => title = v.into_owned(),
+                        "page_url" => page_url = v.into_owned(),
+                        "key" => shortcut_key = v.into_owned(),
                         _ => {}
                     }
                 }
@@ -111,10 +103,8 @@ async fn create_tab_webview(
                 match path.as_str() {
                     "/open-tab" => {
                         if !target_url.is_empty() {
-                            let _ = app_for_nav.emit(
-                                "browser://open-tab",
-                                json!({ "url": target_url }),
-                            );
+                            let _ = app_for_nav
+                                .emit("browser://open-tab", json!({ "url": target_url }));
                         }
                     }
                     "/download" => {
@@ -152,14 +142,25 @@ async fn create_tab_webview(
                             );
                         }
                     }
-                    "/zoom" => {
-                        if !action.is_empty() {
+                    "/page-title" => {
+                        let _ = app_for_nav.emit(
+                            "browser://page-title",
+                            json!({
+                                "label": label_for_nav,
+                                "title": if title.is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    serde_json::Value::String(title)
+                                },
+                                "url": page_url,
+                            }),
+                        );
+                    }
+                    "/shortcut" => {
+                        if !shortcut_key.is_empty() {
                             let _ = app_for_nav.emit(
-                                "browser://zoom",
-                                json!({
-                                    "label": label_for_zoom,
-                                    "action": action,
-                                }),
+                                "browser://shortcut",
+                                json!({ "key": shortcut_key }),
                             );
                         }
                     }
@@ -168,8 +169,7 @@ async fn create_tab_webview(
                 false
             })
             .on_download(|webview, event| {
-                if let tauri::webview::DownloadEvent::Requested { url, destination } = event
-                {
+                if let tauri::webview::DownloadEvent::Requested { url, destination } = event {
                     let app = webview.app_handle().clone();
                     let url_str = url.to_string();
                     let dest = destination.to_string_lossy().into_owned();
@@ -189,7 +189,6 @@ async fn create_tab_webview(
                 true
             });
 
-    // ── Changed: Use Logical coordinates ───────────────────
     let position = tauri::Position::Logical(tauri::LogicalPosition { x, y });
     let size = tauri::Size::Logical(tauri::LogicalSize {
         width: width.max(1.0),
@@ -199,12 +198,6 @@ async fn create_tab_webview(
     window
         .add_child(builder, position, size)
         .map_err(|e| format!("failed to create webview: {e}"))?;
-
-    if (zoom - 1.0).abs() > 0.001 {
-        if let Some(wv) = app.get_webview(&label) {
-            let _ = wv.set_zoom(zoom);
-        }
-    }
 
     let label_clone = label.clone();
     let app_clone = app.clone();
@@ -282,15 +275,17 @@ pub fn run() {
             );
         })
         .setup(|app| {
+            let dir = app
+                .path()
+                .app_data_dir()
+                .map(|p| p.join("storage"))
+                .unwrap_or_else(|_| std::env::temp_dir().join("nova-storage"));
+            app.manage(storage::StorageState::load(dir));
+
             #[cfg(target_os = "macos")]
             {
                 let json = include_str!("../filters/webkit_rules.json");
                 adblocker_macos::compile(json);
-                let _ = app;
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = app;
             }
             Ok(())
         })
@@ -300,7 +295,6 @@ pub fn run() {
             open_new_tab,
             inject_js,
             get_context_menu_script,
-            set_webview_zoom,
             create_tab_webview,
             close_tab_webview,
             popover::toggle_downloads_popover,
@@ -310,6 +304,20 @@ pub fn run() {
             adblocker::set_adblocker_enabled,
             adblocker::load_bundled_easylist,
             adblocker::diagnose_url,
+            storage::history_record,
+            storage::history_list,
+            storage::history_search,
+            storage::history_delete,
+            storage::history_clear,
+            storage::bookmarks_list,
+            storage::bookmarks_add,
+            storage::bookmarks_remove,
+            storage::bookmarks_is_bookmarked,
+            storage::search_history_record,
+            storage::search_history_list,
+            storage::search_history_clear,
+            storage::session_get,
+            storage::session_save,
             downloads::start_download,
             downloads::pause_download,
             downloads::resume_download,

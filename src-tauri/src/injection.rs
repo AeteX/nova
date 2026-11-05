@@ -20,10 +20,6 @@ pub const NAVIGATION_INIT_SCRIPT: &str = r#"
     window.location.href = s;
   }
 
-  function requestZoom(action) {
-    window.location.href = 'https://nova-action.local/zoom?action=' + action;
-  }
-
   var originalOpen = window.open;
   window.open = function (url, target, features) {
     if (url) {
@@ -70,34 +66,36 @@ pub const NAVIGATION_INIT_SCRIPT: &str = r#"
     requestOpenTab(anchor.href);
   }, true);
 
-  // ── Zoom controls ─────────────────────────────────────────
-  var lastZoomAt = 0;
-
+  // ── Keyboard shortcuts routed to the host ─────────────────
   document.addEventListener('keydown', function (e) {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.altKey) return;
-    var k = e.key;
-    var action = null;
-    if (k === '=' || k === '+') action = 'in';
-    else if (k === '-' || k === '_') action = 'out';
-    else if (k === '0') action = 'reset';
-    if (action) {
-      e.preventDefault();
-      e.stopPropagation();
-      requestZoom(action);
-    }
-  }, true);
+    var key = (e.key || '').toLowerCase();
+    var ctrl = e.ctrlKey || e.metaKey;
+    var shift = e.shiftKey;
+    var alt = e.altKey;
+    var shortcut = null;
 
-  document.addEventListener('wheel', function (e) {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.deltaY === 0) return;
+    // Order matters — most specific first.
+    if (ctrl && shift && !alt && key === 't') shortcut = 'reopen-closed-tab';
+    else if (ctrl && shift && !alt && key === 'tab') shortcut = 'prev-tab';
+    else if (ctrl && shift && !alt && key === 'b') shortcut = 'toggle-bookmarks-bar';
+    else if (ctrl && !shift && !alt && key === 'tab') shortcut = 'next-tab';
+    else if (ctrl && !shift && !alt && /^[1-9]$/.test(key)) shortcut = 'tab-' + key;
+    else if (ctrl && !shift && !alt && key === 't') shortcut = 'new-tab';
+    else if (ctrl && !shift && !alt && key === 'w') shortcut = 'close-tab';
+    else if (ctrl && !shift && !alt && key === 'l') shortcut = 'focus-address';
+    else if (ctrl && !shift && !alt && key === 'r') shortcut = 'reload';
+    else if (ctrl && !shift && !alt && key === 'd') shortcut = 'bookmark';
+    else if (ctrl && !shift && !alt && key === 'k') shortcut = 'command-palette';
+    else if (!ctrl && !shift && !alt && key === 'f5') shortcut = 'reload';
+    else if (!ctrl && !shift && !alt && key === 'f6') shortcut = 'focus-address';
+    else if (alt && !ctrl && !shift && key === 'arrowleft') shortcut = 'back';
+    else if (alt && !ctrl && !shift && key === 'arrowright') shortcut = 'forward';
+
+    if (!shortcut) return;
     e.preventDefault();
     e.stopPropagation();
-    var now = Date.now();
-    if (now - lastZoomAt < 80) return;
-    lastZoomAt = now;
-    requestZoom(e.deltaY < 0 ? 'in' : 'out');
-  }, { passive: false, capture: true });
+    window.location.href = 'https://nova-action.local/shortcut?key=' + shortcut;
+  }, true);
 })();
 "#;
 

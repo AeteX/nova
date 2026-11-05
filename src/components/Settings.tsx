@@ -6,6 +6,7 @@ import {
 } from "../hooks/useSettings";
 import ExtensionsPanel from "./ExtensionsPanel";
 import AdBlockerSettings from "./AdBlockerSettings";
+import ToolbarLayoutEditor from "./ToolbarLayoutEditor";
 
 interface SettingsPageProps {
   settings: SettingsType;
@@ -50,7 +51,7 @@ export default function SettingsPage({
         </header>
 
         <div className="nova-settings-body">
-          {/* ── Search ─────────────────────────────── */}
+          {/* Search */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">Search</h2>
             <label className="nova-field">
@@ -93,7 +94,7 @@ export default function SettingsPage({
             )}
           </section>
 
-          {/* ── Homepage ───────────────────────────── */}
+          {/* Homepage */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">Homepage</h2>
             <label className="nova-field">
@@ -103,7 +104,7 @@ export default function SettingsPage({
                 type="text"
                 value={settings.homepage}
                 onChange={(e) => onUpdate({ homepage: e.target.value })}
-                placeholder="https://duckduckgo.com"
+                placeholder="nova://home"
               />
               <span className="nova-field-hint">
                 Opened whenever a new tab is created.
@@ -111,7 +112,7 @@ export default function SettingsPage({
             </label>
           </section>
 
-          {/* ── Appearance ─────────────────────────── */}
+          {/* Appearance */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">Appearance</h2>
             <div className="nova-field">
@@ -144,18 +145,89 @@ export default function SettingsPage({
                 </label>
               </div>
             </div>
+
+            <label className="nova-toggle-row">
+              <div>
+                <div className="nova-field-label">Window controls style</div>
+                <div className="nova-field-hint">
+                  {settings.windowControlsStyle === "macos"
+                    ? "macOS traffic lights on the left"
+                    : "Windows-style buttons on the right"}
+                </div>
+              </div>
+              <div className="nova-segmented">
+                <button
+                  className={`nova-segment ${
+                    settings.windowControlsStyle === "macos"
+                      ? "nova-segment--active"
+                      : ""
+                  }`}
+                  onClick={() =>
+                    onUpdate({ windowControlsStyle: "macos" })
+                  }
+                >
+                  macOS
+                </button>
+                <button
+                  className={`nova-segment ${
+                    settings.windowControlsStyle === "windows"
+                      ? "nova-segment--active"
+                      : ""
+                  }`}
+                  onClick={() =>
+                    onUpdate({ windowControlsStyle: "windows" })
+                  }
+                >
+                  Windows
+                </button>
+              </div>
+            </label>
           </section>
 
-          {/* ── Behavior ───────────────────────────── */}
+          {/* Behavior */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">Behavior</h2>
 
             <label className="nova-toggle-row">
               <div>
+                <div className="nova-field-label">Restore session on launch</div>
+                <div className="nova-field-hint">
+                  Reopen your tabs from the last session next time you start
+                  Nova.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                className="nova-toggle"
+                checked={settings.sessionRestore}
+                onChange={(e) =>
+                  onUpdate({ sessionRestore: e.target.checked })
+                }
+              />
+            </label>
+
+            <label className="nova-toggle-row">
+              <div>
+                <div className="nova-field-label">Bookmarks bar</div>
+                <div className="nova-field-hint">
+                  Show a row of bookmarks below the tab strip.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                className="nova-toggle"
+                checked={settings.bookmarksToolbar}
+                onChange={(e) =>
+                  onUpdate({ bookmarksToolbar: e.target.checked })
+                }
+              />
+            </label>
+
+            <label className="nova-toggle-row">
+              <div>
                 <div className="nova-field-label">Custom context menu</div>
                 <div className="nova-field-hint">
-                  Use Nova's futuristic right-click menu instead of the system
-                  one. Takes effect on newly opened tabs.
+                  Use Nova's right-click menu instead of the system one.
                 </div>
               </div>
               <input
@@ -169,10 +241,23 @@ export default function SettingsPage({
             </label>
           </section>
 
-          {/* ── Ad Blocker ─────────────────────────── */}
+          {/* Toolbar */}
+          <section className="nova-settings-section">
+            <h2 className="nova-section-title">Toolbar</h2>
+            <span className="nova-field-hint" style={{ display: "block", marginBottom: 12 }}>
+              Reorder or reposition buttons. Window controls are fixed and not
+              affected by this layout.
+            </span>
+            <ToolbarLayoutEditor
+              layout={settings.toolbarLayout}
+              onChange={(layout) => onUpdate({ toolbarLayout: layout })}
+            />
+          </section>
+
+          {/* Ad Blocker */}
           <AdBlockerSettings />
 
-          {/* ── AI Assistant ───────────────────────── */}
+          {/* AI */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">AI Assistant</h2>
 
@@ -258,13 +343,13 @@ export default function SettingsPage({
             )}
           </section>
 
-          {/* ── Extensions ─────────────────────────── */}
+          {/* Extensions */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">Extensions</h2>
             <ExtensionsPanel />
           </section>
 
-          {/* ── About ──────────────────────────────── */}
+          {/* About */}
           <section className="nova-settings-section">
             <h2 className="nova-section-title">About</h2>
             <div className="nova-about-card">
@@ -273,7 +358,7 @@ export default function SettingsPage({
                 <div className="nova-about-name">{BROWSER_NAME}</div>
                 <div className="nova-about-meta">
                   A <span className="nova-about-brand">AeteX</span> product ·
-                  v0.1.0
+                  v0.1.1
                 </div>
               </div>
             </div>
