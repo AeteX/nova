@@ -4,13 +4,13 @@
 
 **A futuristic, extensible desktop browser built with Tauri and React.**
 
-[![Release](https://img.shields.io/github/v/release/AeteX/nova?style=flat-square&color=00e5ff)](https://github.com/AeteX/nova/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/AeteX/nova/build.yml?style=flat-square&label=build)](https://github.com/AeteX/nova/actions)
-[![License](https://img.shields.io/github/license/AeteX/nova?style=flat-square&color=7c4dff)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-windows-00e5ff?style=flat-square)](https://github.com/AeteX/nova/releases)
+[![Release](https://img.shields.io/github/v/release/YOUR_USERNAME/nova?style=flat-square&color=00e5ff)](https://github.com/YOUR_USERNAME/nova/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/YOUR_USERNAME/nova/build.yml?style=flat-square&label=build)](https://github.com/YOUR_USERNAME/nova/actions)
+[![License](https://img.shields.io/github/license/YOUR_USERNAME/nova?style=flat-square&color=7c4dff)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-windows-00e5ff?style=flat-square)](https://github.com/YOUR_USERNAME/nova/releases)
 [![Tauri](https://img.shields.io/badge/tauri-2.x-24c8db?style=flat-square&logo=tauri)](https://tauri.app)
 
-[Download](#installation) · [Screenshots](#screenshots) · [Features](#features) · [Extensions](#extension-sdk) · [Development](#development) · [Changelog](CHANGELOG.md)
+[Download](#installation) · [Screenshots](#screenshots) · [Features](#features) · [Shortcuts](#keyboard-shortcuts) · [Extensions](#extension-sdk) · [Development](#development) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -36,7 +36,8 @@
 
 Nova is a native browser shell built on **Tauri v2** and **React 19**. It
 ships with a local-first AI assistant, a native extension system, a custom
-homepage, and a cyberpunk-inspired UI.
+homepage, full history and bookmarks, a command palette, and a cyberpunk-inspired
+UI.
 
 ## Screenshots
 
@@ -62,24 +63,112 @@ homepage, and a cyberpunk-inspired UI.
 
 ## Features
 
+### Native browser core
 - **Native child webviews** — each tab is a real OS-level webview, not an iframe
-- **Custom homepage** (`nova://home`) — live clock, central search bar, customizable quick links, recent downloads
-- **AI assistant** — streaming from any llama.cpp server, with tool calling for navigation, tabs, downloads, and settings
-- **Extension system** — sandboxed iframes, typed SDK, two-layer permission enforcement
-- **Downloads manager** — native popover window, per-download progress, pause/resume/cancel, detailed `nova://downloads` page
-- **Per-tab zoom** — Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+scroll, persisted across tab switches
-- **Custom context menu** — optional neon-styled menu rendered as DOM inside the page
-- **Ad blocker (in progress)** — EasyList-based, currently partial — see the warning above
-- **Working tab strip** — shrinking tabs, horizontal scroll, overflow menu
+- **Tab strip** with equal-width shrinking, horizontal scroll, overflow menu, and middle-click to close
+- **Back / forward / reload** with per-tab history stack and disabled-state indicators
+- **Address bar** with search engine fallback, domain auto-detection, and loading-state pulse
+- **Animated page-load progress bar** driven by Rust `on_page_load` events
+- **Session restore** — open tabs, per-tab history, and active tab come back on next launch (toggleable)
+- **Full keyboard shortcut layer** — works whether the page or the chrome has focus
+
+### History and bookmarks
+- **`nova://history`** — date-grouped entries, live search, per-entry removal, clear-all
+- **`nova://bookmarks`** — searchable list with per-entry removal
+- **`Ctrl+D`** toggles the bookmark from anywhere, including from a focused page
+- **Bookmark star** lives inside the address bar, right side
+- **Bookmarks bar** below the tab strip, off by default, toggled with `Ctrl+Shift+B`
+- **Search history** records queries typed into the address bar and surfaces them in the command palette
+
+### Command palette
+- **`Ctrl+K`** opens from anywhere
+- **Unified search** across history, bookmarks, recent searches, and browser actions
+- **URL detection** — typing a domain offers "Go to" as the top result
+- **`Ctrl+Enter`** opens any URL result in a new tab; current tab stays put
+- **Arrow navigation**, Enter to select, Escape to close
+
+### Custom homepage
+- **`nova://home`** with live clock, time-aware greeting, and recent downloads strip
+- **Central search bar** — press `/` to focus, `Ctrl+Enter` to open in a new tab
+- **Customizable quick links** with favicon fetching, gradient letter fallbacks, and an add-shortcut modal
+- **One-click access** to settings, AI panel, and the full downloads page
+
+### AI assistant
+- **Local-first** — streams from any llama.cpp server, no cloud required
+- **Tool calling** — navigate, open tabs, search, close tabs, read page state, change settings
+- **Animated tool cards** with ambient pulse while running, success flash, error shake
+- **Orb** in the sidebar header with four states — idle, connecting, streaming, error
+
+### Extension system
+- **Sandboxed runtime** — cross-origin iframes over `nova-ext://` with per-extension CSP
+- **Typed SDK** with `tabs`, `storage`, `runtime`, `contentScripts`, and `ui` namespaces
+- **Two-layer permission enforcement** — frontend router and Rust validator must both pass
+- **Side panels** — extensions declaring `"ui": { "panel": "panel.html" }` get a toolbar entry that opens their HTML in the right sidebar
+- **Content script injection** with URL glob matching
+
+### Downloads
+- **Streaming downloads** via `reqwest` with byte-count progress events
+- **Native popover window** — separate React root with its own event loop, immune to page-level interference
+- **Pause / resume / cancel** per download, open file and show-in-folder on completion
+- **`nova://downloads`** — full page listing with source page URL, file URL, and saved path
+
+### Customizable UI
+- **Reorderable toolbar** — move any of ten items in Settings → Toolbar
+- **Hide toolbar items** — eye toggle per item; the address bar is protected so you can't lock yourself out
+- **Window controls style** — macOS traffic lights (default) or Windows-style buttons, in Settings → Appearance
+- **Search engine picker** — DuckDuckGo, Google, Bing, Brave, Startpage, Ecosia, or a custom URL template
+- **Accent color** — six presets plus a color picker, applied live to every surface
+- **Custom context menu** (opt-in) — neon-styled right-click menu rendered as DOM inside the page
+- **AI configuration** — server URL, model name, system prompt, temperature
+
+### Ad blocker (in progress)
+- **`adblock-rust`** engine loaded with bundled EasyList (~82,000 rules)
+- **Diagnostic panel** in Settings for testing any URL against the engine
+- Request interception layer is incomplete — see the warning above
+
+## Keyboard shortcuts
+
+Every shortcut works whether the address bar or a web page has focus.
+
+### Tabs
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close active tab |
+| `Ctrl+Shift+T` | Reopen last closed tab (up to 20) |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle tabs forward / backward |
+| `Ctrl+1` … `Ctrl+8` | Jump to tab N |
+| `Ctrl+9` | Jump to last tab |
+| Middle-click a tab | Close it without activating |
+
+### Navigation
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+L` / `F6` | Focus address bar |
+| `Ctrl+R` / `F5` | Reload |
+| `Alt+←` / `Alt+→` | Back / forward |
+| `Escape` | Close overlay, or revert address bar |
+
+### Browser features
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+K` | Command palette |
+| `Ctrl+D` | Bookmark toggle |
+| `Ctrl+Shift+B` | Toggle bookmarks bar |
+| `/` on homepage | Focus homepage search |
 
 ## Installation
 
-Download the latest release from the [Releases page](https://github.com/AeteX/nova/releases).
+Download the latest release from the [Releases page](https://github.com/YOUR_USERNAME/nova/releases).
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | `Nova_x.x.x_x64-setup.exe` or `.msi` | Tested and working |
-| macOS | `Nova_x.x.x_x64.dmg` | ⚠️ Not available until the code is validated on macOS |
+| Windows | `Nova_0.1.1_x64-setup.exe` | Recommended. Start Menu entry + uninstaller. |
+| Windows | `Nova_0.1.1_x64_en-US.msi` | Enterprise / Group Policy |
+| macOS | `Nova_0.1.1_x64.dmg` | ⚠️ Not available until validated on macOS |
 
 ### First launch
 
@@ -94,6 +183,32 @@ the source in this repository.
 2. Download a GGUF model — Llama 3.2 3B or Qwen 2.5 7B are good starting points
 3. Run `./llama-server -m your-model.gguf -c 4096 --host 127.0.0.1 --port 8080`
 4. In Nova, open **Settings → AI Assistant** and toggle **Enable**
+5. Click the **◈** button in the toolbar
+
+## Extension SDK
+
+```js
+defineExtension("com.example.my-ext", (nova) => {
+  nova.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "ping") return { type: "pong" };
+  });
+
+  nova.tabs.onUpdated.addListener(({ tabId, changes }) => {
+    if (changes.status === "complete") {
+      console.log("Tab finished loading:", tabId);
+    }
+  });
+});
+```
+
+Extensions are installed by dropping a folder into the directory shown in
+**Settings → Extensions**. The full manifest reference, SDK API, URL match
+patterns, and security model are documented in
+[docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+
+**Available permissions:** `tabs.read`, `tabs.write`, `tabs.navigate`,
+`storage.local`, `storage.sync`, `messaging`, `contentScripts`, `ui.popup`,
+`ui.panel`, `notifications`, `webRequest`.
 
 ## Development
 
@@ -115,7 +230,7 @@ has been reported yet — expect to fix some compile issues if you try.
 ### Setup
 
 ```bash
-git clone https://github.com/AeteX/nova.git
+git clone https://github.com/YOUR_USERNAME/nova.git
 cd nova
 npm install
 ```
@@ -126,80 +241,131 @@ npm install
 npm run tauri dev
 ```
 
+The first launch compiles the Rust backend in debug mode — expect 2–3
+minutes. Subsequent launches are near-instant.
+
 ### Production build
 
-**Windows:**
+The repo ships with cross-platform build scripts that check prerequisites,
+install dependencies, run the full Tauri pipeline, and print the location
+and size of every installer produced.
+
+**Windows**
+
 ```powershell
 .\scripts\build.ps1
 ```
-Or double-click `scripts\build.bat` — it handles execution policy automatically.
 
-**macOS (untested):**
+Or double-click `scripts\build.bat` — it launches the PowerShell script with
+an execution-policy bypass so you never need to touch `Set-ExecutionPolicy`.
+
+**macOS (untested)**
+
 ```bash
-chmod +x scripts/build.sh
+chmod +x scripts/build.sh   # one-time after cloning
 ./scripts/build.sh
 ```
 
-**Build flags:**
+**Build flags**
 
 | PowerShell | Shell | Effect |
 |---|---|---|
 | `-Clean` | `--clean` | Wipe `dist/` and `src-tauri/target/` first |
-| `-FrontendOnly` | `--frontend` | Skip Rust compile |
-| `-NoBundle` | `--no-bundle` | Raw executable, no installers |
-| `-SkipInstall` | `--skip-install` | Skip `npm install` (CI) |
+| `-FrontendOnly` | `--frontend` | Build only the frontend |
+| `-NoBundle` | `--no-bundle` | Raw executable, skip installers |
+| `-SkipInstall` | `--skip-install` | Skip `npm install` (for CI) |
 | `-NoPause` | `--no-pause` | Skip end-of-run pause |
 
-## Extension SDK
+**Manual build**
 
-```js
-defineExtension("com.example.my-ext", (nova) => {
-  nova.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "ping") return { type: "pong" };
-  });
-});
+```bash
+npm run tauri build
 ```
 
-Extensions install by dropping a folder into the directory shown in
-**Settings → Extensions**. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md) for
-the full manifest reference.
+Outputs land in `src-tauri/target/release/bundle/`:
+
+- **Windows** — `bundle/msi/*.msi` and `bundle/nsis/*-setup.exe`
+- **macOS** — `bundle/dmg/*.dmg` (once validated)
+
+### Other commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Vite dev server only (no Tauri shell) |
+| `npm run typecheck` | Full TypeScript check across the project |
+| `npm run clean` | Remove `dist/` and `src-tauri/target/` |
+| `npm run clean:frontend` | Remove `dist/` only |
+| `npm run clean:rust` | Run `cargo clean` |
 
 ## Architecture
 
-Three layers: **React frontend**, **Rust core (Tauri)**,
-**sandboxed extension runtime**. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Nova is split into three cooperating layers:
 
-## Project structure
+1. **Frontend (React + TypeScript)** — toolbar, tabs, settings, AI panel, extension manager
+2. **Rust core (Tauri)** — webview lifecycle, extension discovery, custom URI scheme, permission enforcement
+3. **Extension runtime** — sandboxed iframes plus a `postMessage` IPC bridge
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full diagram and
+details on the IPC protocol, AI tool loop, and security model.
+
+### Project structure
 
 ```
 nova/
-├── src/                        React frontend
-│   ├── components/             UI (Browser, Settings, HomePage, AIPanel, …)
-│   ├── hooks/                  Settings, extensions, downloads, AI
-│   ├── extension-sdk/          SDK shipped to extension authors
-│   └── extension-host/         Host-side extension runtime
-├── src-tauri/                  Rust backend
-│   ├── src/                    lib.rs, downloads, adblocker, extensions
-│   ├── filters/                EasyList and WebKit rule JSON
-│   └── embedded/               Bundled extension SDK
-├── scripts/                    Build scripts
+├── src/                          React frontend
+│   ├── components/               UI (Browser, Settings, HomePage, AIPanel, …)
+│   ├── hooks/                    Settings, extensions, downloads, AI, storage
+│   ├── extension-sdk/            SDK shipped to extension authors
+│   └── extension-host/           Host-side extension runtime
+├── src-tauri/                    Rust backend
+│   ├── src/                      lib.rs, downloads, adblocker, storage, extensions
+│   ├── filters/                  EasyList and WebKit rule JSON
+│   └── embedded/                 Bundled extension SDK
 ├── docs/
-│   ├── screenshots/            README images
+│   ├── screenshots/              README images
 │   ├── ARCHITECTURE.md
 │   └── EXTENSIONS.md
-└── CHANGELOG.md
+├── scripts/                      Build scripts (build.ps1, build.sh, build.bat)
+├── CHANGELOG.md
+└── package.json
 ```
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, TypeScript, Vite |
+| Frontend | React 19, TypeScript 6, Vite 8 |
 | Styling | Plain CSS with custom properties |
-| Native shell | Tauri 2 + Wry |
-| Backend | Rust 2021, tokio, reqwest |
-| Ad blocking | adblock-rust 0.13 |
-| AI | llama.cpp (OpenAI-compatible HTTP API) |
+| Native shell | Tauri 2, WebView2 (Windows), WKWebView (macOS) |
+| Backend | Rust 2021 edition, `serde`, `reqwest`, `parking_lot` |
+| Ad blocking | `adblock-rust` 0.13 |
+| AI | llama.cpp OpenAI-compatible API, Server-Sent Events streaming |
+
+## Roadmap
+
+- [x] Native tab rendering with child webviews
+- [x] AI assistant with llama.cpp streaming
+- [x] AI tool calling (navigate, search, tabs, settings)
+- [x] Extension system with typed SDK
+- [x] Back / forward / reload with per-tab history
+- [x] Loading bar driven by Rust page-load events
+- [x] Cross-platform build scripts
+- [x] Custom homepage (`nova://home`)
+- [x] Downloads manager with native popover
+- [x] History and bookmarks
+- [x] Session restore on launch
+- [x] Command palette (`Ctrl+K`)
+- [x] Extension side panels
+- [x] Full keyboard shortcut layer
+- [x] Customizable toolbar (reorder + hide)
+- [ ] Complete Windows ad blocker interception
+- [ ] macOS build validation
+- [ ] Extension popup surface
+- [ ] History and bookmarks export / import
+- [ ] Tab groups
+- [ ] Custom new-tab layout editor
+- [ ] Extension signing (Ed25519)
+- [ ] Auto-update via Tauri updater
 
 ## Contributing
 
@@ -213,7 +379,19 @@ Contributions are especially welcome for:
 - **EasyList → WebKit JSON conversion** — the macOS blocker needs a proper
   converter to reach meaningful coverage
 
-See [CHANGELOG.md](CHANGELOG.md) for the full list of known limitations.
+```bash
+# Type-check the whole project
+npm run typecheck
+
+# Run the Rust tests
+cd src-tauri && cargo test
+
+# Full release build
+./build.sh --clean
+```
+
+Please keep PRs scoped to one change and include a short description of the
+*why* alongside the *what*.
 
 ## License
 

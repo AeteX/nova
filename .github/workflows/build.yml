@@ -8,12 +8,8 @@ on:
 
 jobs:
   check:
-    name: Compile check (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: Type-check and compile
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -34,9 +30,8 @@ jobs:
       - name: Type-check frontend
         run: npm run typecheck
 
-      - name: Cargo check (may fail on macOS — expected)
+      - name: Cargo check
         working-directory: src-tauri
-        continue-on-error: ${{ matrix.os == 'macos-latest' }}
         run: cargo check --locked
 
   build:
