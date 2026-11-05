@@ -189,27 +189,23 @@ async fn create_tab_webview(
                 true
             });
 
-    let position = tauri::Position::Physical(tauri::PhysicalPosition {
-        x: x as i32,
-        y: y as i32,
-    });
-    let size = tauri::Size::Physical(tauri::PhysicalSize {
-        width: width.max(1.0) as u32,
-        height: height.max(1.0) as u32,
+    // ── Changed: Use Logical coordinates ───────────────────
+    let position = tauri::Position::Logical(tauri::LogicalPosition { x, y });
+    let size = tauri::Size::Logical(tauri::LogicalSize {
+        width: width.max(1.0),
+        height: height.max(1.0),
     });
 
     window
         .add_child(builder, position, size)
         .map_err(|e| format!("failed to create webview: {e}"))?;
 
-    // Apply the saved zoom for this tab before the page starts loading.
     if (zoom - 1.0).abs() > 0.001 {
         if let Some(wv) = app.get_webview(&label) {
             let _ = wv.set_zoom(zoom);
         }
     }
 
-    // ── Attach the ad blocker handler to the new tab ──────
     let label_clone = label.clone();
     let app_clone = app.clone();
     tauri::async_runtime::spawn(async move {

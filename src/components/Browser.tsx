@@ -7,7 +7,8 @@ import {
 } from "react";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+// ── Changed: Import Logical instead of Physical ──
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import SettingsPage from "./Settings";
@@ -127,12 +128,10 @@ export default function Browser() {
   const canGoBack = activeTab.historyIndex > 0;
   const canGoForward = activeTab.historyIndex < activeTab.history.length - 1;
 
-  // ── Window title ────────────────────────────────────────
   useEffect(() => {
     getCurrentWindow().setTitle(BROWSER_NAME).catch(() => {});
   }, []);
 
-  // ── Listen for page load events from Rust ───────────────
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
 
@@ -221,7 +220,6 @@ export default function Browser() {
     };
   }, []);
 
-  // ── Inject context menu script after each page load ────
   useEffect(() => {
     if (!settings.customContextMenu) return;
     let unlisten: (() => void) | null = null;
@@ -243,7 +241,6 @@ export default function Browser() {
     return () => unlisten?.();
   }, [activeTabId, settings.customContextMenu]);
 
-  // ── Mount / remount the child webview via Rust ─────────
   useEffect(() => {
     const previousLabel = webviewLabelRef.current;
 
@@ -301,7 +298,6 @@ export default function Browser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab.id, activeTab.url, activeIsInternal]);
 
-  // ── Close the webview on unmount ────────────────────────
   useEffect(() => {
     return () => {
       const label = webviewLabelRef.current;
@@ -312,7 +308,7 @@ export default function Browser() {
     };
   }, []);
 
-  // ── Keep the native webview glued to .nova-content ─────
+  // ── Changed: Logical sizing loop ────────────────────────
   useEffect(() => {
     if (!webviewInstance) return;
     let cancelled = false;
@@ -327,22 +323,25 @@ export default function Browser() {
       const node = containerRef.current;
       if (node) {
         const rect = node.getBoundingClientRect();
-        const x = Math.floor(rect.left);
-        const y = Math.floor(rect.top);
-        const w = Math.max(1, Math.floor(rect.width));
-        const h = Math.max(1, Math.floor(rect.height));
+        
+        // Use logical pixels directly, no flooring.
+        const x = rect.left;
+        const y = rect.top;
+        const w = Math.max(1, rect.width);
+        const h = Math.max(1, rect.height);
+        
         if (x !== lastX || y !== lastY) {
           lastX = x;
           lastY = y;
           webviewInstance
-            .setPosition(new PhysicalPosition(x, y))
+            .setPosition(new LogicalPosition(x, y))
             .catch(() => {});
         }
         if (w !== lastW || h !== lastH) {
           lastW = w;
           lastH = h;
           webviewInstance
-            .setSize(new PhysicalSize(w, h))
+            .setSize(new LogicalSize(w, h))
             .catch(() => {});
         }
       }
@@ -355,7 +354,6 @@ export default function Browser() {
     };
   }, [webviewInstance]);
 
-  // ── Hide the webview only for the tabs overflow menu ───
   useEffect(() => {
     if (!webviewInstance) return;
     if (tabsMenuOpen) {
@@ -365,7 +363,6 @@ export default function Browser() {
     }
   }, [tabsMenuOpen, webviewInstance]);
 
-  // ── Escape closes the topmost overlay ──────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -377,7 +374,6 @@ export default function Browser() {
     return () => window.removeEventListener("keydown", onKey);
   }, [aiOpen, tabsMenuOpen, zoomMenuOpen]);
 
-  // ── Wheel scroll on the tab strip ──────────────────────
   useEffect(() => {
     const el = tabsScrollRef.current;
     if (!el) return;
@@ -395,7 +391,6 @@ export default function Browser() {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // ── Detect tab strip overflow ──────────────────────────
   useEffect(() => {
     const el = tabsScrollRef.current;
     if (!el) return;
@@ -412,7 +407,6 @@ export default function Browser() {
     };
   }, [tabs]);
 
-  // ── Scroll the active tab into view ────────────────────
   useEffect(() => {
     const el = tabsScrollRef.current;
     if (!el) return;
@@ -429,7 +423,6 @@ export default function Browser() {
     }
   }, [activeTabId]);
 
-  // ── Close the overflow menu on outside click ───────────
   useEffect(() => {
     if (!tabsMenuOpen) return;
     const onClick = () => setTabsMenuOpen(false);
@@ -437,7 +430,6 @@ export default function Browser() {
     return () => window.removeEventListener("click", onClick);
   }, [tabsMenuOpen]);
 
-  // ── Close zoom menu on outside click ───────────────────
   useEffect(() => {
     if (!zoomMenuOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -449,7 +441,6 @@ export default function Browser() {
     return () => window.removeEventListener("mousedown", onClick);
   }, [zoomMenuOpen]);
 
-  // ── Sync downloads popover open/close events from Rust ─
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
     listen("downloads-popover-opened", () => setDownloadsOpen(true)).then(
@@ -463,7 +454,6 @@ export default function Browser() {
     };
   }, []);
 
-  // ── Hide popover on click outside the ↓ button ─────────
   useEffect(() => {
     if (!downloadsOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -475,7 +465,6 @@ export default function Browser() {
     return () => window.removeEventListener("mousedown", onDown);
   }, [downloadsOpen]);
 
-  // ── Listen for new-tab requests from the injected script ──
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ url: string }>("browser://open-tab", (e) => {
@@ -487,7 +476,6 @@ export default function Browser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Listen for download requests from the injected script ─
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ url: string; filename?: string; source_page_url?: string }>(
@@ -506,7 +494,6 @@ export default function Browser() {
     return () => unlisten?.();
   }, []);
 
-  // ── Listen for context-menu action clicks ──────────────
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ action: string; payload: string | null }>(
@@ -525,7 +512,6 @@ export default function Browser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Apply a zoom change to a specific tab ──────────────
   const applyZoom = useCallback(
     async (label: string, action: "in" | "out" | "reset" | number) => {
       const tab = tabsRef.current.find((t) => t.id === label);
@@ -544,8 +530,6 @@ export default function Browser() {
 
       if (Math.abs(next - tab.zoom) < 0.001) return;
 
-      // Update the ref synchronously so rapid Ctrl+= presses
-      // read the correct base value before React state updates.
       tabsRef.current = tabsRef.current.map((t) =>
         t.id === label ? { ...t, zoom: next } : t
       );
@@ -562,7 +546,6 @@ export default function Browser() {
     []
   );
 
-  // ── Listen for zoom requests from the injected script ──
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ label: string; action: string }>("browser://zoom", (e) => {
